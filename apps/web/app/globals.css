@@ -61,11 +61,16 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 .button:active { transform: scale(.97); }
 .button:disabled { background: var(--hf-hairline); color: var(--hf-ink-48); border-color: transparent; cursor: not-allowed; }
 .button-default { background: var(--hf-primary); color: var(--hf-on-dark); }
-.button-default:hover { background: var(--hf-ink-80); }
+.button-default:hover { background: var(--hf-ink-80); color: var(--hf-on-dark); }
 .button-outline { background: transparent; color: var(--hf-ink); border: 1px solid var(--hf-ink); }
+.button-outline:hover { background: var(--hf-ink); color: var(--hf-on-dark); border-color: var(--hf-ink); }
 .button-secondary { background: var(--hf-canvas); color: var(--hf-ink); border: 1px solid var(--hf-hairline); }
+.button-secondary:hover { background: var(--hf-parchment); color: var(--hf-ink); border-color: var(--hf-hairline); }
 .button-ghost { background: var(--hf-canvas); color: var(--hf-ink); border: 1px solid var(--hf-hairline); }
+.button-ghost:hover { background: var(--hf-parchment); color: var(--hf-ink); border-color: var(--hf-hairline); }
 .button-danger { background: var(--hf-coral); color: var(--hf-on-dark); }
+.button-danger:hover { background: #e0473b; color: var(--hf-on-dark); }
+.icon-button:hover { background: var(--hf-parchment); color: var(--hf-ink); }
 .button-small { min-height: 40px; padding: 8px 16px; font-size: 14px; }
 .button-icon, .icon-button { width: 40px; height: 40px; padding: 0; border-radius: 9999px; border: 1px solid var(--hf-hairline); }
 .icon-button { background: var(--hf-canvas); color: var(--hf-ink); display: inline-grid; place-items: center; cursor: pointer; }
@@ -168,19 +173,19 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 
 /* Card background carries the quick visual identity of each queue state.
    New = red (attention), acknowledged/preparing = white, ready = green, served = muted. */
-.order-card-pending { background: var(--hf-coral); border-color: transparent; color: var(--hf-on-dark); }
+.order-card-pending, .order-card-preparing { background: var(--hf-coral); border-color: transparent; color: var(--hf-on-dark); }
 .order-card-ready { background: var(--hf-success-text); border-color: transparent; color: var(--hf-on-dark); }
 .order-card-served { opacity: .55; }
-.order-card-pending .muted, .order-card-ready .muted,
-.order-card-pending .order-customer, .order-card-ready .order-customer,
-.order-card-pending .order-lines .muted, .order-card-ready .order-lines .muted,
-.order-card-pending .fine-print, .order-card-ready .fine-print { color: rgba(255,255,255,.82) !important; }
-.order-card-pending .order-reference, .order-card-ready .order-reference { background: rgba(255,255,255,.22); color: var(--hf-on-dark); }
-.order-card-pending .status-pill, .order-card-ready .status-pill { background: rgba(255,255,255,.24); color: var(--hf-on-dark); }
-.order-card-pending .button-default, .order-card-ready .button-default { background: var(--hf-on-dark); color: var(--hf-ink); }
-.order-card-pending .button-default:hover, .order-card-ready .button-default:hover { background: rgba(255,255,255,.88); }
-.order-card-pending .button-outline, .order-card-ready .button-outline { background: transparent; border-color: rgba(255,255,255,.7); color: var(--hf-on-dark); }
-.order-card-pending a, .order-card-ready a { color: var(--hf-on-dark); text-decoration: underline; }
+.order-card-pending .muted, .order-card-preparing .muted, .order-card-ready .muted,
+.order-card-pending .order-customer, .order-card-preparing .order-customer, .order-card-ready .order-customer,
+.order-card-pending .order-lines .muted, .order-card-preparing .order-lines .muted, .order-card-ready .order-lines .muted,
+.order-card-pending .fine-print, .order-card-preparing .fine-print, .order-card-ready .fine-print { color: rgba(255,255,255,.82) !important; }
+.order-card-pending .order-reference, .order-card-preparing .order-reference, .order-card-ready .order-reference { background: rgba(255,255,255,.22); color: var(--hf-on-dark); }
+.order-card-pending .status-pill, .order-card-preparing .status-pill, .order-card-ready .status-pill { background: rgba(255,255,255,.24); color: var(--hf-on-dark); }
+.order-card-pending .button-default, .order-card-preparing .button-default, .order-card-ready .button-default { background: var(--hf-on-dark); color: var(--hf-ink); }
+.order-card-pending .button-default:hover, .order-card-preparing .button-default:hover, .order-card-ready .button-default:hover { background: rgba(255,255,255,.88); color: var(--hf-ink); }
+.order-card-pending .button-outline, .order-card-preparing .button-outline, .order-card-ready .button-outline { background: transparent; border-color: rgba(255,255,255,.7); color: var(--hf-on-dark); }
+.order-card-pending a, .order-card-preparing a, .order-card-ready a { color: var(--hf-on-dark); text-decoration: underline; }
 .stock-grid, .inventory-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 20px; }
 .stock-card { min-height: 136px; display: flex; flex-direction: column; justify-content: space-between; }
 .stock-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
