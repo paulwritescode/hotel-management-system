@@ -1,0 +1,25 @@
+{
+  "name": "@heavenly/convex",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./schema": "./convex/schema.ts"
+  },
+  "scripts": {
+    "dev": "convex dev",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf convex/_generated"
+  },
+  "dependencies": {
+    "@heavenly/types": "workspace:*",
+    "convex": "1.42.3"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "4.0.18"
+  }
+}

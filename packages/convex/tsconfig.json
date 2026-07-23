@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["convex/**/*.ts"],
+  "exclude": ["convex/_generated"]
+}
