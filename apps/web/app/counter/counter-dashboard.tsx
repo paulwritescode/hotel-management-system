@@ -124,7 +124,7 @@ export function CounterDashboard() {
         : <div className="queue-grid">{visible.map((order) => {
           const action = nextStatus[order.status]
           const elapsed = Math.floor((now - order.placedAt) / 60_000)
-          return <article key={order._id} className="order-card">
+          return <article key={order._id} className={`order-card order-card-${order.status}`}>
             <header className="order-card-head">
               <div>
                 {orderReferenceShort(order.reference) && <span className="order-reference">#{orderReferenceShort(order.reference)}</span>}

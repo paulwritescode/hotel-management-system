@@ -47,6 +47,7 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
   const createStaff = useAction(api.staff.create)
   const updateStaff = useMutation(api.staff.update)
   const setPin = useAction(api.staff.setPin)
+  const removeStaff = useMutation(api.staff.remove)
   const notify = useToast()
 
   const assignableRoles = creatableRoles(actorRole)
@@ -58,6 +59,7 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
   const [editing, setEditing] = useState<Staff | null>(null)
   const [pinTarget, setPinTarget] = useState<Staff | null>(null)
   const [pinReveal, setPinReveal] = useState<Reveal | null>(null)
+  const [removeTarget, setRemoveTarget] = useState<Staff | null>(null)
   const [busy, setBusy] = useState(false)
 
   const rows = useMemo(() => [...staff].sort((left, right) =>
@@ -128,6 +130,18 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
 
   function closePin() { setPinTarget(null); setPinReveal(null) }
 
+  async function remove() {
+    if (!removeTarget) return
+    const previous = staff
+    setBusy(true)
+    try {
+      if (backend) await removeStaff({ token: auth!.token, staffId: removeTarget._id })
+      setStaff((current) => current.filter((person) => person._id !== removeTarget._id))
+      notify(`${removeTarget.name} removed`); setRemoveTarget(null)
+    } catch (reason) { setStaff(previous); notify(reason instanceof Error ? reason.message : 'Staff member could not be removed', 'error') }
+    finally { setBusy(false) }
+  }
+
   const description = isOwner
     ? 'Manage manager, counter and waiter access without exposing stored PINs'
     : 'Manage counter and waiter access without exposing stored PINs'
@@ -147,7 +161,7 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
               <Td><span className="status-tag"><span className="status-bar" aria-hidden="true" />{person.enabled ? 'Active' : 'Disabled'}</span></Td>
               <Td className="fine-print muted">—</Td>
               <Td>{actionable
-                ? <div className="staff-row-actions"><Button size="small" variant="ghost" onClick={() => setEditing(person)}>Edit</Button><Button size="small" variant="ghost" icon={false} onClick={() => toggle(person)}>{person.enabled ? 'Disable' : 'Enable'}</Button><Button size="small" variant="ghost" icon={false} onClick={() => setPinTarget(person)}>Reset PIN</Button></div>
+                ? <div className="staff-row-actions"><Button size="small" variant="ghost" onClick={() => setEditing(person)}>Edit</Button><Button size="small" variant="ghost" icon={false} onClick={() => toggle(person)}>{person.enabled ? 'Disable' : 'Enable'}</Button><Button size="small" variant="ghost" icon={false} onClick={() => setPinTarget(person)}>Reset PIN</Button><Button size="small" variant="outline" onClick={() => setRemoveTarget(person)}>Remove</Button></div>
                 : <span className="fine-print muted">—</span>}</Td>
             </tr>
           })}</tbody>
@@ -187,6 +201,11 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
       {pinReveal
         ? <div className="pin-reveal"><p className="muted">Share this PIN with <strong>{pinReveal.name}</strong> now. It will not be shown again.</p><p className="pin-reveal-value">{pinReveal.pin}</p><div className="form-actions"><Button onClick={closePin}>Done</Button></div></div>
         : <form className="form-stack" onSubmit={resetPin}><div className="field"><label htmlFor="new-pin">New PIN</label><Input id="new-pin" name="pin" type="password" inputMode="numeric" minLength={4} maxLength={6} pattern="[0-9]{4,6}" required autoFocus /></div><div className="form-actions"><Button type="button" variant="secondary" disabled={busy} onClick={closePin}>Discard</Button><Button type="submit" disabled={busy}>Update PIN</Button></div></form>}
+    </Dialog>
+
+    <Dialog open={Boolean(removeTarget)} onClose={() => { if (!busy) setRemoveTarget(null) }} title="Remove staff member" description="This permanently deletes the account. Past orders they handled are unaffected.">
+      <p>Remove <strong>{removeTarget?.name}</strong> ({removeTarget?.role})? To temporarily suspend access instead, use Disable.</p>
+      <div className="form-actions"><Button type="button" variant="secondary" disabled={busy} onClick={() => setRemoveTarget(null)}>Keep staff</Button><Button type="button" variant="danger" disabled={busy} onClick={remove}>Remove</Button></div>
     </Dialog>
   </DashboardShell>
 }

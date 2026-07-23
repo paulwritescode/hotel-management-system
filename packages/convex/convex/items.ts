@@ -181,9 +181,67 @@ export const setAvailability = mutationGeneric({
     if (!item || item.archived) throw new Error('Item not found')
     const staff = await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(item.restaurantId))
     if (args.available && item.quantityOnHand === 0) throw new Error('An out-of-stock item cannot be made available')
-    await ctx.db.patch(args.itemId, { available: args.available, updatedAt: Date.now() })
+    await ctx.db.patch(args.itemId, { available: args.available, lastStockChangeBy: staff._id, lastStockChangeAt: Date.now(), lastStockChangeKind: 'availability', updatedAt: Date.now() })
     await logActivity(ctx.db, staff, 'item_availability', `Marked “${item.name}” ${args.available ? 'available' : 'unavailable'}`)
     return args.itemId
+  },
+})
+
+// Applies a resolved quantity change (from restock or set-quantity), handling auto-reavailability
+// and writing the attribution fields plus a stock-ledger row in the same mutation. An item that
+// sold out (was 0 and auto-disabled) re-enables; an item a human turned off at positive stock
+// stays off. Untracked items (quantityOnHand undefined) are rejected by the callers.
+async function applyStockChange(ctx: any, item: any, nextQuantity: number, kind: 'restock' | 'set_quantity', staffId: any) {
+  if (nextQuantity < 0) throw new Error('Quantity cannot go below zero')
+  const wasDepleted = item.quantityOnHand === 0 && !item.available
+  const available = wasDepleted ? nextQuantity > 0 : item.available && nextQuantity > 0
+  const now = Date.now()
+  await ctx.db.patch(item._id, {
+    quantityOnHand: nextQuantity,
+    available,
+    lastStockChangeBy: staffId,
+    lastStockChangeAt: now,
+    lastStockChangeKind: kind,
+    updatedAt: now,
+  })
+  await ctx.db.insert('stockLedger', {
+    restaurantId: item.restaurantId,
+    itemId: item._id,
+    kind,
+    delta: nextQuantity - (item.quantityOnHand ?? 0),
+    quantityAfter: nextQuantity,
+    staffId,
+    at: now,
+  })
+  return { available, reenabled: wasDepleted && nextQuantity > 0 }
+}
+
+export const restock = mutationGeneric({
+  args: { token: v.string(), itemId: v.id('items'), addQuantity: v.number() },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.itemId)
+    if (!item || item.archived) throw new Error('Item not found')
+    // Stock state is owned by counter and above; price and menu config are not touched here.
+    const staff = await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(item.restaurantId))
+    if (item.quantityOnHand === undefined) throw new Error('This item is not quantity-tracked')
+    if (!Number.isSafeInteger(args.addQuantity) || args.addQuantity <= 0) throw new Error('Add a positive whole quantity')
+    const result = await applyStockChange(ctx, item, item.quantityOnHand + args.addQuantity, 'restock', staff._id)
+    await logActivity(ctx.db, staff, 'stock_restock', `Restocked “${item.name}” by ${args.addQuantity} to ${item.quantityOnHand + args.addQuantity}${result.reenabled ? ' (back on the menu)' : ''}`)
+    return { quantityOnHand: item.quantityOnHand + args.addQuantity, available: result.available, reenabled: result.reenabled }
+  },
+})
+
+export const setQuantity = mutationGeneric({
+  args: { token: v.string(), itemId: v.id('items'), quantity: v.number() },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.itemId)
+    if (!item || item.archived) throw new Error('Item not found')
+    const staff = await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(item.restaurantId))
+    if (item.quantityOnHand === undefined) throw new Error('This item is not quantity-tracked')
+    if (!Number.isSafeInteger(args.quantity) || args.quantity < 0) throw new Error('Enter a non-negative whole quantity')
+    const result = await applyStockChange(ctx, item, args.quantity, 'set_quantity', staff._id)
+    await logActivity(ctx.db, staff, 'stock_set', `Set “${item.name}” count to ${args.quantity}${result.reenabled ? ' (back on the menu)' : ''}`)
+    return { quantityOnHand: args.quantity, available: result.available, reenabled: result.reenabled }
   },
 })
 

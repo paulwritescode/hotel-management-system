@@ -29,6 +29,12 @@ export default defineSchema({
     imageAlt: v.optional(v.string()),
     imageCredit: v.optional(v.string()),
     imageCreditUrl: v.optional(v.string()),
+    lastStockChangeBy: v.optional(v.id('staff')),
+    lastStockChangeAt: v.optional(v.number()),
+    lastStockChangeKind: v.optional(v.union(
+      v.literal('availability'), v.literal('restock'),
+      v.literal('set_quantity'), v.literal('auto_depleted'),
+    )),
     archived: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -99,6 +105,7 @@ export default defineSchema({
     action: v.union(
       v.literal('create'), v.literal('update_role'),
       v.literal('enable'), v.literal('disable'), v.literal('reset_pin'),
+      v.literal('delete'),
     ),
     targetStaffId: v.id('staff'),
     targetRoleBefore: v.optional(v.string()),
@@ -117,6 +124,19 @@ export default defineSchema({
     detail: v.optional(v.string()),
     at: v.number(),
   }).index('by_restaurant_at', ['restaurantId', 'at']),
+
+  stockLedger: defineTable({
+    restaurantId: v.id('restaurants'),
+    itemId: v.id('items'),
+    kind: v.union(v.literal('restock'), v.literal('set_quantity'), v.literal('order')),
+    delta: v.number(),
+    quantityAfter: v.number(),
+    staffId: v.optional(v.id('staff')),
+    orderId: v.optional(v.id('orders')),
+    at: v.number(),
+  })
+    .index('by_restaurant_at', ['restaurantId', 'at'])
+    .index('by_item_at', ['itemId', 'at']),
 
   sessions: defineTable({
     restaurantId: v.id('restaurants'),

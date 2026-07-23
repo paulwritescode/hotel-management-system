@@ -160,6 +160,26 @@ export const update = mutationGeneric({
 
 // Owner-only. Rejects any non-owner caller so a crafted request from a lower role returns
 // nothing. Enriches rows with actor/target names; audit rows never contain PIN data.
+export const remove = mutationGeneric({
+  args: { token: v.string(), staffId: v.id('staff') },
+  handler: async (ctx, args) => {
+    const target = await ctx.db.get(args.staffId)
+    if (!target) throw new Error('Staff member not found')
+    const actor = await requireStaff(ctx.db, args.token, ['manager', 'owner'], String(target.restaurantId))
+    // Only a strictly-higher role may delete, and never your own record.
+    assertMayManage(actor.role, target.role as StaffRole, String(actor._id), String(target._id))
+    const now = Date.now()
+    // Record the deletion before removing the row so the audit/activity trail is complete.
+    await ctx.db.insert('staffAudit', {
+      restaurantId: target.restaurantId, actorStaffId: actor._id, actorRole: actor.role,
+      action: 'delete', targetStaffId: args.staffId, targetRoleBefore: target.role, at: now,
+    })
+    await logActivity(ctx.db, actor, 'staff_delete', `Removed ${target.name} (${target.role})`)
+    await ctx.db.delete(args.staffId)
+    return args.staffId
+  },
+})
+
 export const auditTrail = queryGeneric({
   args: { token: v.string(), restaurantId: v.id('restaurants') },
   handler: async (ctx, args) => {

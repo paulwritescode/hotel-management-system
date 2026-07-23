@@ -53,7 +53,8 @@ async function decrementStock(ctx: any, lines: Array<{ itemId: any; quantity: nu
     if (item.quantityOnHand !== undefined) {
       const remaining = item.quantityOnHand - line.quantity
       if (remaining < 0) throw new Error(`${item.name} just ran out`)
-      await ctx.db.patch(item._id, { quantityOnHand: remaining, available: remaining > 0, updatedAt: Date.now() })
+      const depletion = remaining === 0 ? { lastStockChangeKind: 'auto_depleted' as const, lastStockChangeBy: undefined, lastStockChangeAt: Date.now() } : {}
+      await ctx.db.patch(item._id, { quantityOnHand: remaining, available: remaining > 0, updatedAt: Date.now(), ...depletion })
     }
   }
 }

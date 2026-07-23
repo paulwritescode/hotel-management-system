@@ -165,12 +165,34 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 .status-pill.status-preparing { background: var(--hf-magenta); }
 .status-pill.status-ready { background: var(--hf-coral); }
 .status-pill.status-served { background: var(--hf-success-text); }
+
+/* Card background carries the quick visual identity of each queue state.
+   New = red (attention), acknowledged/preparing = white, ready = green, served = muted. */
+.order-card-pending { background: var(--hf-coral); border-color: transparent; color: var(--hf-on-dark); }
+.order-card-ready { background: var(--hf-success-text); border-color: transparent; color: var(--hf-on-dark); }
+.order-card-served { opacity: .55; }
+.order-card-pending .muted, .order-card-ready .muted,
+.order-card-pending .order-customer, .order-card-ready .order-customer,
+.order-card-pending .order-lines .muted, .order-card-ready .order-lines .muted,
+.order-card-pending .fine-print, .order-card-ready .fine-print { color: rgba(255,255,255,.82) !important; }
+.order-card-pending .order-reference, .order-card-ready .order-reference { background: rgba(255,255,255,.22); color: var(--hf-on-dark); }
+.order-card-pending .status-pill, .order-card-ready .status-pill { background: rgba(255,255,255,.24); color: var(--hf-on-dark); }
+.order-card-pending .button-default, .order-card-ready .button-default { background: var(--hf-on-dark); color: var(--hf-ink); }
+.order-card-pending .button-default:hover, .order-card-ready .button-default:hover { background: rgba(255,255,255,.88); }
+.order-card-pending .button-outline, .order-card-ready .button-outline { background: transparent; border-color: rgba(255,255,255,.7); color: var(--hf-on-dark); }
+.order-card-pending a, .order-card-ready a { color: var(--hf-on-dark); text-decoration: underline; }
 .stock-grid, .inventory-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 20px; }
 .stock-card { min-height: 136px; display: flex; flex-direction: column; justify-content: space-between; }
 .stock-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .stock-card h3 { margin-bottom: 4px; font-size: 17px; line-height: 1.24; }
 .stock-card-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .stock-flag { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 9999px; background: var(--hf-coral); color: var(--hf-on-dark); font-size: 11px; font-weight: 600; }
+.stock-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.stock-count strong { font-size: 17px; font-weight: 600; }
+.restock-preview { margin: 0; font-size: 15px; color: var(--hf-ink-48); }
+.restock-preview strong { color: var(--hf-ink); font-size: 20px; }
+.restock-mode-link { align-self: flex-start; padding: 4px 0; border: 0; background: none; color: var(--hf-blue-deep); font-size: 14px; font-weight: 600; cursor: pointer; }
+.restock-mode-link:hover { text-decoration: underline; }
 .filter-bar { display: grid; grid-template-columns: minmax(220px,1fr) minmax(180px,280px); gap: 12px; margin-bottom: 24px; }
 
 .metric-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; margin-bottom: 20px; }

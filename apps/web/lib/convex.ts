@@ -52,6 +52,7 @@ export const api = {
     create: makeFunctionReference<'action', AuthArgs & { name: string; role: StaffRole; pin: string }, Id>('staff:create'),
     update: makeFunctionReference<'mutation', { token: string; staffId: Id; name: string; role: StaffRole; enabled: boolean }, null>('staff:update'),
     setPin: makeFunctionReference<'action', { token: string; staffId: Id; pin: string }, null>('staff:setPin'),
+    remove: makeFunctionReference<'mutation', { token: string; staffId: Id }, Id>('staff:remove'),
     auditTrail: makeFunctionReference<'query', AuthArgs, AuditEntry[]>('staff:auditTrail'),
   },
   items: {
@@ -61,6 +62,8 @@ export const api = {
     update: makeFunctionReference<'mutation', { token: string; itemId: Id } & ItemInput, Id>('items:update'),
     archive: makeFunctionReference<'mutation', { token: string; itemId: Id }, Id>('items:archive'),
     setAvailability: makeFunctionReference<'mutation', { token: string; itemId: Id; available: boolean }, Id>('items:setAvailability'),
+    restock: makeFunctionReference<'mutation', { token: string; itemId: Id; addQuantity: number }, { quantityOnHand: number; available: boolean; reenabled: boolean }>('items:restock'),
+    setQuantity: makeFunctionReference<'mutation', { token: string; itemId: Id; quantity: number }, { quantityOnHand: number; available: boolean; reenabled: boolean }>('items:setQuantity'),
     bulkUpsert: makeFunctionReference<'mutation', AuthArgs & { rows: ItemInput[]; columnMappingProfile?: Record<string, string> }, { inserted: number; updated: number }>('items:bulkUpsert'),
   },
   orders: {
