@@ -109,7 +109,9 @@ export async function requireStaff(
     throw new Error('Session is no longer valid')
   }
   if (restaurantId && staff.restaurantId !== restaurantId) throw new Error('Cross-restaurant access denied')
-  if (!allowedRoles.includes(staff.role)) throw new Error('Insufficient role')
+  // The owner outranks the manager, so any manager-permitted function also admits an owner.
+  const permitted = allowedRoles.includes(staff.role) || (staff.role === 'owner' && allowedRoles.includes('manager'))
+  if (!permitted) throw new Error('Insufficient role')
   return staff
 }
 
