@@ -1,11 +1,12 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib'
+import fontkit from '@pdf-lib/fontkit'
 import { orderReferenceShort, type Order } from '@/lib/models'
 
 // An "Order Summary" PDF — a record of what was ordered, NOT a payment receipt or tax invoice.
-// Titled "Order Summary" and carrying the mandatory settle-at-the-counter disclaimer. Branded
-// with logo-2. 80mm-wide stock so it also suits a thermal printer.
+// Titled "Order Summary" with the mandatory settle-at-the-counter disclaimer. Branded with
+// logo-2; numbers set in JetBrains Mono. Always white. 80mm-wide stock (also suits thermal).
 
-const MM = 2.834645669 // points per millimetre
+const MM = 2.834645669
 const WIDTH = 80 * MM
 const MARGIN = 8 * MM
 const INNER = WIDTH - MARGIN * 2
@@ -20,9 +21,9 @@ function nairobiTimestamp(at: number): string {
   }).format(new Date(at))
 }
 
-async function loadLogo(pdf: PDFDocument) {
+async function embedImage(pdf: PDFDocument, path: string) {
   try {
-    const response = await fetch('/logo-2.png')
+    const response = await fetch(path)
     if (!response.ok) return null
     return await pdf.embedPng(await response.arrayBuffer())
   } catch {
@@ -30,29 +31,49 @@ async function loadLogo(pdf: PDFDocument) {
   }
 }
 
+async function embedTtf(pdf: PDFDocument, path: string, fallback: PDFFont) {
+  try {
+    const response = await fetch(path)
+    if (!response.ok) return fallback
+    return await pdf.embedFont(await response.arrayBuffer())
+  } catch {
+    return fallback
+  }
+}
+
 export async function buildOrderSummaryPdf(order: Order): Promise<Uint8Array> {
   const pdf = await PDFDocument.create()
+  pdf.registerFontkit(fontkit)
   const font = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
-  const logo = await loadLogo(pdf)
+  const courier = await pdf.embedFont(StandardFonts.Courier)
+  // Numbers use JetBrains Mono (falls back to Courier if the file can't be fetched).
+  const mono = await embedTtf(pdf, '/fonts/JetBrainsMono-Regular.ttf', courier)
+  const monoBold = await embedTtf(pdf, '/fonts/JetBrainsMono-Bold.ttf', courier)
+  const logo = await embedImage(pdf, '/logo-2.png')
+  const stamp = await embedImage(pdf, '/paid-stamp.png')
 
-  // Height grows with the number of lines; generous fixed chrome for header/footer.
-  const lineRows = order.lines.length
-  const height = 150 * MM + lineRows * 6 * MM
+  const height = 160 * MM + order.lines.length * 6 * MM
   const page = pdf.addPage([WIDTH, height])
+  page.drawRectangle({ x: 0, y: 0, width: WIDTH, height, color: rgb(1, 1, 1) })
   const ink = rgb(0.11, 0.11, 0.11)
   const muted = rgb(0.42, 0.42, 0.45)
   let y = height - MARGIN
 
-  const center = (text: string, f: typeof font, size: number, color = ink) => {
+  const center = (text: string, f: PDFFont, size: number, color = ink) => {
     const w = f.widthOfTextAtSize(text, size)
     page.drawText(text, { x: MARGIN + (INNER - w) / 2, y, size, font: f, color })
     y -= size + 4
   }
-  const row = (left: string, right: string, f: typeof font, size: number, color = ink) => {
-    page.drawText(left, { x: MARGIN, y, size, font: f, color })
-    const rw = f.widthOfTextAtSize(right, size)
-    page.drawText(right, { x: WIDTH - MARGIN - rw, y, size, font: f, color })
+  const left = (text: string, f: PDFFont, size: number, color = ink) => {
+    page.drawText(text, { x: MARGIN, y, size, font: f, color })
+    y -= size + 4
+  }
+  // Left label (Helvetica), right value (value font, e.g. mono for numbers).
+  const row = (label: string, value: string, valueFont: PDFFont, size: number, color = ink) => {
+    page.drawText(label, { x: MARGIN, y, size, font, color: muted })
+    const vw = valueFont.widthOfTextAtSize(value, size)
+    page.drawText(value, { x: WIDTH - MARGIN - vw, y, size, font: valueFont, color })
     y -= size + 5
   }
   const rule = () => { page.drawLine({ start: { x: MARGIN, y: y + 4 }, end: { x: WIDTH - MARGIN, y: y + 4 }, thickness: 0.7, color: rgb(0.85, 0.85, 0.85) }); y -= 8 }
@@ -70,29 +91,38 @@ export async function buildOrderSummaryPdf(order: Order): Promise<Uint8Array> {
   rule()
 
   const shortRef = orderReferenceShort(order.reference)
-  if (order.reference) row('Reference', order.reference, font, 8, muted)
-  else if (shortRef) row('Reference', `#${shortRef}`, font, 8, muted)
-  row('Table', String(order.tableNumber), font, 8, muted)
-  row('Customer', order.customerName, font, 8, muted)
-  row('Date', `${nairobiTimestamp(order.placedAt)} EAT`, font, 8, muted)
+  if (order.reference) row('Reference', order.reference, mono, 8)
+  else if (shortRef) row('Reference', `#${shortRef}`, mono, 8)
+  row('Table', String(order.tableNumber), mono, 8)
+  row('Customer', order.customerName, font, 8)
+  if (order.servedByName) row('Served by', order.servedByName, font, 8)
+  row('Date', `${nairobiTimestamp(order.placedAt)} EAT`, mono, 8)
   rule()
 
-  row('Item', 'Total', bold, 8)
-  y -= 2
+  page.drawText('Item', { x: MARGIN, y, size: 8, font: bold, color: ink })
+  { const rw = bold.widthOfTextAtSize('Total', 8); page.drawText('Total', { x: WIDTH - MARGIN - rw, y, size: 8, font: bold, color: ink }) }
+  y -= 12
   for (const line of order.lines) {
-    row(`${line.quantity} x ${line.nameSnapshot}`, `KES ${(line.priceKesSnapshot * line.quantity).toLocaleString()}`, font, 8)
-    page.drawText(`@ KES ${line.priceKesSnapshot.toLocaleString()}`, { x: MARGIN + 6, y: y + 2, size: 7, font, color: muted })
+    row(`${line.quantity} x ${line.nameSnapshot}`, `KES ${(line.priceKesSnapshot * line.quantity).toLocaleString()}`, mono, 8)
+    page.drawText(`@ KES ${line.priceKesSnapshot.toLocaleString()}`, { x: MARGIN + 6, y: y + 2, size: 7, font: mono, color: muted })
     y -= 6
   }
   rule()
-  row('TOTAL', `KES ${order.totalKes.toLocaleString()}`, bold, 11)
-  y -= 8
+  row('TOTAL', `KES ${order.totalKes.toLocaleString()}`, monoBold, 11, ink)
+  y -= 12
 
-  center('This is an order summary, not a payment receipt.', font, 7, muted)
-  center('Please settle at the counter.', font, 7, muted)
-  y -= 6
-  center(RESTAURANT_NAME, font, 7, muted)
-  if (CONTACT) center(CONTACT, font, 7, muted)
+  // Footer — left aligned.
+  left('This is an order summary, not a payment receipt.', font, 7, muted)
+  left('Please settle at the counter.', font, 7, muted)
+  y -= 4
+  left(RESTAURANT_NAME, font, 7, muted)
+  if (CONTACT) left(CONTACT, mono, 7, muted)
+
+  // Paid stamp, bottom-right.
+  if (stamp) {
+    const scaled = stamp.scaleToFit(30 * MM, 30 * MM)
+    page.drawImage(stamp, { x: WIDTH - MARGIN - scaled.width, y: MARGIN, width: scaled.width, height: scaled.height })
+  }
 
   return pdf.save()
 }

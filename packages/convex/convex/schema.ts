@@ -85,6 +85,7 @@ export default defineSchema({
     ),
     acknowledgedByStaffId: v.optional(v.id('staff')),
     servedByStaffId: v.optional(v.id('staff')),
+    servedByName: v.optional(v.string()),
     cancelledByStaffId: v.optional(v.id('staff')),
     cancellationReason: v.optional(v.string()),
     placedAt: v.number(),

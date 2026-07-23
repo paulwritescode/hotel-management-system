@@ -168,6 +168,7 @@ export const transition = mutationGeneric({
     }
     if (args.status === 'served') {
       patch.servedByStaffId = staff._id
+      patch.servedByName = staff.name
       patch.servedAt = now
       if (order.customerPhone) {
         await ctx.scheduler.runAfter(10 * 60 * 1000, feedbackRef, { phone: order.customerPhone, orderId: order._id })

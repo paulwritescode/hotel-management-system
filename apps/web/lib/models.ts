@@ -35,6 +35,7 @@ export type Order = {
   placedAt: number
   acknowledgedAt?: number
   servedAt?: number
+  servedByName?: string
 }
 
 // The spoken order number read across the counter, e.g. HF-20260723-0042 → 0042.
