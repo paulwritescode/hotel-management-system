@@ -1,6 +1,6 @@
 import { mutationGeneric, queryGeneric } from 'convex/server'
 import { v } from 'convex/values'
-import { assertPositiveInteger, requireStaff } from './_helpers'
+import { assertPositiveInteger, logActivity, requireStaff } from './_helpers'
 
 export const list = queryGeneric({
   args: { token: v.string(), restaurantId: v.id('restaurants') },
@@ -13,7 +13,7 @@ export const list = queryGeneric({
 export const create = mutationGeneric({
   args: { token: v.string(), restaurantId: v.id('restaurants'), number: v.number(), seats: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    await requireStaff(ctx.db, args.token, ['manager'], String(args.restaurantId))
+    const staff = await requireStaff(ctx.db, args.token, ['manager'], String(args.restaurantId))
     assertPositiveInteger(args.number, 'number')
     if (args.number > 999) throw new Error('Table number must be at most 999')
     if (args.seats !== undefined) assertPositiveInteger(args.seats, 'seats')
@@ -21,7 +21,9 @@ export const create = mutationGeneric({
       query.eq('restaurantId', args.restaurantId).eq('number', args.number),
     ).unique()
     if (existing) throw new Error(`Table ${args.number} already exists`)
-    return ctx.db.insert('tables', { restaurantId: args.restaurantId, number: args.number, seats: args.seats, active: true })
+    const tableId = await ctx.db.insert('tables', { restaurantId: args.restaurantId, number: args.number, seats: args.seats, active: true })
+    await logActivity(ctx.db, staff, 'table_create', `Added table ${args.number}`)
+    return tableId
   },
 })
 
@@ -30,7 +32,7 @@ export const update = mutationGeneric({
   handler: async (ctx, args) => {
     const table = await ctx.db.get(args.tableId)
     if (!table) throw new Error('Table not found')
-    await requireStaff(ctx.db, args.token, ['manager'], String(table.restaurantId))
+    const staff = await requireStaff(ctx.db, args.token, ['manager'], String(table.restaurantId))
     if (args.number !== undefined) {
       assertPositiveInteger(args.number, 'number')
       if (args.number > 999) throw new Error('Table number must be at most 999')
@@ -41,6 +43,7 @@ export const update = mutationGeneric({
     }
     if (args.seats !== undefined) assertPositiveInteger(args.seats, 'seats')
     await ctx.db.patch(args.tableId, { number: args.number ?? table.number, seats: args.seats, active: args.active })
+    await logActivity(ctx.db, staff, 'table_update', `Updated table ${args.number ?? table.number}`)
   },
 })
 
@@ -49,7 +52,7 @@ export const remove = mutationGeneric({
   handler: async (ctx, args) => {
     const table = await ctx.db.get(args.tableId)
     if (!table) throw new Error('Table not found')
-    await requireStaff(ctx.db, args.token, ['manager'], String(table.restaurantId))
+    const staff = await requireStaff(ctx.db, args.token, ['manager'], String(table.restaurantId))
     const orders = await ctx.db.query('orders').withIndex('by_restaurant_table', (query: any) =>
       query.eq('restaurantId', table.restaurantId).eq('tableNumber', table.number),
     ).collect()
@@ -57,6 +60,7 @@ export const remove = mutationGeneric({
       throw new Error('A table with open orders cannot be removed')
     }
     await ctx.db.delete(args.tableId)
+    await logActivity(ctx.db, staff, 'table_remove', `Removed table ${table.number}`)
     return args.tableId
   },
 })
@@ -66,13 +70,16 @@ export const assignWaiter = mutationGeneric({
   handler: async (ctx, args) => {
     const table = await ctx.db.get(args.tableId)
     if (!table) throw new Error('Table not found')
-    await requireStaff(ctx.db, args.token, ['manager'], String(table.restaurantId))
+    const staff = await requireStaff(ctx.db, args.token, ['manager'], String(table.restaurantId))
+    let waiterName = 'no waiter'
     if (args.waiterId) {
       const waiter = await ctx.db.get(args.waiterId)
       if (!waiter || !waiter.enabled || waiter.role !== 'waiter' || String(waiter.restaurantId) !== String(table.restaurantId)) {
         throw new Error('Assigned staff member must be an enabled waiter in this restaurant')
       }
+      waiterName = waiter.name
     }
     await ctx.db.patch(args.tableId, { assignedWaiterId: args.waiterId })
+    await logActivity(ctx.db, staff, 'table_assign', `Assigned table ${table.number} to ${waiterName}`)
   },
 })

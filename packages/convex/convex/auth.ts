@@ -11,6 +11,7 @@ import {
   PBKDF2_ITERATIONS,
   SESSION_TTL_MS,
   issueSessionToken,
+  logActivity,
 } from './_helpers'
 
 const readStaffRef = makeFunctionReference<'query', { staffId: string }, any>('auth:readStaff')
@@ -70,6 +71,7 @@ export const recordAttempt = internalMutationGeneric({
     if (!staff) return
     if (args.succeeded) {
       await ctx.db.patch(args.staffId, { failedAttempts: 0, lockedUntil: undefined })
+      await logActivity(ctx.db, staff, 'sign_in', 'Signed in')
       return
     }
     const failures = staff.lockedUntil && staff.lockedUntil <= args.now ? 1 : staff.failedAttempts + 1

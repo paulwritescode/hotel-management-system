@@ -142,3 +142,29 @@ export async function getActiveTable(db: GenericDatabaseReader<GenericDataModel>
 }
 
 export type DbWriter = GenericDatabaseWriter<GenericDataModel>
+
+type ActivityActor = { _id: unknown; restaurantId: unknown; role: StaffRole; name?: unknown }
+
+// Records a single operational activity entry (sign-ins, inventory/table/order/staff changes).
+// The actor's name and role are snapshotted so the feed reads without joins and can be filtered
+// by role level. Never throw from logging — activity is observability, not a transaction gate.
+export async function logActivity(
+  db: GenericDatabaseWriter<GenericDataModel>,
+  actor: ActivityActor,
+  action: string,
+  detail?: string,
+): Promise<void> {
+  try {
+    await db.insert('activityLog', {
+      restaurantId: actor.restaurantId as never,
+      actorStaffId: actor._id as never,
+      actorName: typeof actor.name === 'string' ? actor.name : 'Unknown',
+      actorRole: actor.role,
+      action,
+      ...(detail ? { detail } : {}),
+      at: Date.now(),
+    })
+  } catch {
+    // Swallow logging failures so they can never break the underlying operation.
+  }
+}

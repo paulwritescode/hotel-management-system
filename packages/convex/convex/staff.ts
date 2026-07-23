@@ -1,6 +1,6 @@
 import { actionGeneric, internalMutationGeneric, makeFunctionReference, mutationGeneric, queryGeneric } from 'convex/server'
 import { v } from 'convex/values'
-import { ROLE_LEVEL, assertMayManage, cleanRequired, requireStaff, verifySessionToken, type StaffRole } from './_helpers'
+import { ROLE_LEVEL, assertMayManage, cleanRequired, logActivity, requireStaff, verifySessionToken, type StaffRole } from './_helpers'
 import { hashPin } from './auth'
 
 const role = v.union(v.literal('owner'), v.literal('manager'), v.literal('counter'), v.literal('waiter'))
@@ -80,6 +80,8 @@ export const createInternal = internalMutationGeneric({
       restaurantId: args.restaurantId, actorStaffId: args.actorStaffId, actorRole: args.actorRole,
       action: 'create', targetStaffId: staffId, targetRoleAfter: args.role, at: now,
     })
+    const actor = await ctx.db.get(args.actorStaffId)
+    if (actor) await logActivity(ctx.db, actor, 'staff_create', `Added ${args.name} (${args.role})`)
     return staffId
   },
 })
@@ -115,6 +117,8 @@ export const setPinInternal = internalMutationGeneric({
       restaurantId: staff.restaurantId, actorStaffId: args.actorStaffId, actorRole: args.actorRole,
       action: 'reset_pin', targetStaffId: args.staffId, at: now,
     })
+    const actor = await ctx.db.get(args.actorStaffId)
+    if (actor) await logActivity(ctx.db, actor, 'staff_reset_pin', `Reset PIN for ${staff.name}`)
   },
 })
 
@@ -146,6 +150,10 @@ export const update = mutationGeneric({
         restaurantId: target.restaurantId, actorStaffId: actor._id, actorRole: actor.role,
         action: args.enabled ? 'enable' : 'disable', targetStaffId: args.staffId, at: now,
       })
+    }
+    if (roleChanged || enabledChanged) {
+      const summary = roleChanged ? `Changed ${target.name} to ${args.role}` : `${args.enabled ? 'Enabled' : 'Disabled'} ${target.name}`
+      await logActivity(ctx.db, actor, 'staff_update', summary)
     }
   },
 })

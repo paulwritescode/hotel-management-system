@@ -108,6 +108,16 @@ export default defineSchema({
     .index('by_restaurant_at', ['restaurantId', 'at'])
     .index('by_target', ['targetStaffId']),
 
+  activityLog: defineTable({
+    restaurantId: v.id('restaurants'),
+    actorStaffId: v.id('staff'),
+    actorName: v.string(),
+    actorRole: v.union(v.literal('owner'), v.literal('manager'), v.literal('counter'), v.literal('waiter')),
+    action: v.string(),
+    detail: v.optional(v.string()),
+    at: v.number(),
+  }).index('by_restaurant_at', ['restaurantId', 'at']),
+
   sessions: defineTable({
     restaurantId: v.id('restaurants'),
     phone: v.string(),

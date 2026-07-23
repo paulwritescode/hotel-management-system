@@ -4,6 +4,7 @@ import {
   assertOptionalNonNegativeInteger,
   assertPositiveInteger,
   cleanRequired,
+  logActivity,
   requireStaff,
 } from './_helpers'
 
@@ -142,11 +143,13 @@ export const generateUploadUrl = mutationGeneric({
 export const create = mutationGeneric({
   args: { token: v.string(), restaurantId: v.id('restaurants'), ...itemInput },
   handler: async (ctx, args) => {
-    await requireStaff(ctx.db, args.token, ['manager'], String(args.restaurantId))
+    const staff = await requireStaff(ctx.db, args.token, ['manager'], String(args.restaurantId))
     if (args.imageStorageId) await validateStoredImage(ctx, args.imageStorageId)
     const item = normalized(args)
     const now = Date.now()
-    return ctx.db.insert('items', { restaurantId: args.restaurantId, ...item, archived: false, createdAt: now, updatedAt: now })
+    const itemId = await ctx.db.insert('items', { restaurantId: args.restaurantId, ...item, archived: false, createdAt: now, updatedAt: now })
+    await logActivity(ctx.db, staff, 'item_create', `Added menu item “${item.name}”`)
+    return itemId
   },
 })
 
@@ -155,7 +158,7 @@ export const update = mutationGeneric({
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.itemId)
     if (!existing) throw new Error('Item not found')
-    await requireStaff(ctx.db, args.token, ['manager'], String(existing.restaurantId))
+    const staff = await requireStaff(ctx.db, args.token, ['manager'], String(existing.restaurantId))
     if (args.imageStorageId) await validateStoredImage(ctx, args.imageStorageId)
     const item = normalized(args)
     const replacingStoredImage = Boolean(args.imageStorageId && String(args.imageStorageId) !== String(existing.imageStorageId ?? ''))
@@ -166,6 +169,7 @@ export const update = mutationGeneric({
     }
     await ctx.db.patch(args.itemId, { ...item, updatedAt: Date.now() })
     if (replacingStoredImage && existing.imageStorageId) await ctx.storage.delete(existing.imageStorageId)
+    await logActivity(ctx.db, staff, 'item_update', `Updated menu item “${item.name}”`)
     return args.itemId
   },
 })
@@ -175,9 +179,10 @@ export const setAvailability = mutationGeneric({
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId)
     if (!item || item.archived) throw new Error('Item not found')
-    await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(item.restaurantId))
+    const staff = await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(item.restaurantId))
     if (args.available && item.quantityOnHand === 0) throw new Error('An out-of-stock item cannot be made available')
     await ctx.db.patch(args.itemId, { available: args.available, updatedAt: Date.now() })
+    await logActivity(ctx.db, staff, 'item_availability', `Marked “${item.name}” ${args.available ? 'available' : 'unavailable'}`)
     return args.itemId
   },
 })
@@ -187,8 +192,9 @@ export const archive = mutationGeneric({
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId)
     if (!item) throw new Error('Item not found')
-    await requireStaff(ctx.db, args.token, ['manager'], String(item.restaurantId))
+    const staff = await requireStaff(ctx.db, args.token, ['manager'], String(item.restaurantId))
     await ctx.db.patch(args.itemId, { archived: true, available: false, updatedAt: Date.now() })
+    await logActivity(ctx.db, staff, 'item_archive', `Archived menu item “${item.name}”`)
     return args.itemId
   },
 })
@@ -201,7 +207,7 @@ export const bulkUpsert = mutationGeneric({
     columnMappingProfile: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    await requireStaff(ctx.db, args.token, ['manager'], String(args.restaurantId))
+    const staff = await requireStaff(ctx.db, args.token, ['manager'], String(args.restaurantId))
     if (args.rows.length === 0 || args.rows.length > 1000) throw new Error('Import must contain 1 to 1000 rows')
     const rows = args.rows.map(normalized)
     const keys = new Set<string>()
@@ -234,6 +240,7 @@ export const bulkUpsert = mutationGeneric({
     if (args.columnMappingProfile !== undefined) {
       await ctx.db.patch(args.restaurantId, { columnMappingProfile: args.columnMappingProfile })
     }
+    await logActivity(ctx.db, staff, 'item_import', `Imported menu (${inserted} added, ${updated} updated)`)
     return { inserted, updated }
   },
 })

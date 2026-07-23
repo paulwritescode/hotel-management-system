@@ -1,6 +1,6 @@
 import { internalMutationGeneric, makeFunctionReference, mutationGeneric, queryGeneric } from 'convex/server'
 import { v } from 'convex/values'
-import { assertPositiveInteger, cleanRequired, getActiveTable, requireStaff, type OrderStatus } from './_helpers'
+import { assertPositiveInteger, cleanRequired, getActiveTable, logActivity, requireStaff, type OrderStatus } from './_helpers'
 import { assertOrderTransition, computeOrderTotal } from './_domain'
 
 const orderStatus = v.union(
@@ -93,7 +93,7 @@ export const placeManual = mutationGeneric({
     customerName: v.string(), customerPhone: v.optional(v.string()), lines: v.array(cartLine),
   },
   handler: async (ctx, args) => {
-    await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(args.restaurantId))
+    const staff = await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(args.restaurantId))
     await getActiveTable(ctx.db, String(args.restaurantId), args.tableNumber)
     const { snapshots, totalKes } = await snapshotLines(ctx, String(args.restaurantId), args.lines)
     await decrementStock(ctx, snapshots)
@@ -113,6 +113,7 @@ export const placeManual = mutationGeneric({
       status: 'pending',
       placedAt: now,
     })
+    await logActivity(ctx.db, staff, 'order_create', `Created order #${reference.split('-').at(-1)} for table ${args.tableNumber}`)
     return { orderId, totalKes, reference, lines: snapshots }
   },
 })
@@ -161,6 +162,7 @@ export const transition = mutationGeneric({
     }
     if (args.status === 'closed') patch.closedAt = now
     await ctx.db.patch(args.orderId, patch)
+    await logActivity(ctx.db, staff, 'order_status', `Order #${order.reference?.split('-').at(-1) ?? order.tableNumber} → ${args.status}`)
     return args.orderId
   },
 })
@@ -175,6 +177,7 @@ export const cancel = mutationGeneric({
     const reason = args.reason.trim()
     if (reason.length < 3 || reason.length > 500) throw new Error('Cancellation reason must be 3 to 500 characters')
     await ctx.db.patch(args.orderId, { status: 'cancelled', cancellationReason: reason, cancelledByStaffId: staff._id, closedAt: Date.now() })
+    await logActivity(ctx.db, staff, 'order_cancel', `Cancelled order #${order.reference?.split('-').at(-1) ?? order.tableNumber}`)
     return args.orderId
   },
 })
