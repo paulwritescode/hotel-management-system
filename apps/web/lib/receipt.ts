@@ -51,9 +51,8 @@ export async function buildOrderSummaryPdf(order: Order): Promise<Uint8Array> {
   const mono = await embedTtf(pdf, '/fonts/JetBrainsMono-Regular.ttf', courier)
   const monoBold = await embedTtf(pdf, '/fonts/JetBrainsMono-Bold.ttf', courier)
   const logo = await embedImage(pdf, '/logo-2.png')
-  const stamp = await embedImage(pdf, '/paid-stamp.png')
 
-  const height = 160 * MM + order.lines.length * 6 * MM
+  const height = 148 * MM + order.lines.length * 6 * MM
   const page = pdf.addPage([WIDTH, height])
   page.drawRectangle({ x: 0, y: 0, width: WIDTH, height, color: rgb(1, 1, 1) })
   const ink = rgb(0.11, 0.11, 0.11)
@@ -117,12 +116,6 @@ export async function buildOrderSummaryPdf(order: Order): Promise<Uint8Array> {
   y -= 4
   left(RESTAURANT_NAME, font, 7, muted)
   if (CONTACT) left(CONTACT, mono, 7, muted)
-
-  // Paid stamp, bottom-right.
-  if (stamp) {
-    const scaled = stamp.scaleToFit(30 * MM, 30 * MM)
-    page.drawImage(stamp, { x: WIDTH - MARGIN - scaled.width, y: MARGIN, width: scaled.width, height: scaled.height })
-  }
 
   return pdf.save()
 }
