@@ -417,6 +417,19 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 .staff-actions-col { text-align: right; }
 .staff-row-disabled .staff-avatar, .staff-row-disabled .staff-name-cell .body-strong { color: var(--hf-ink-48); }
 .staff-row-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+
+/* Waiter assigned-table chips — coloured with the same queue language:
+   green = ready to run, red = work in progress, quiet = acknowledged, muted = clear. */
+.table-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+.table-chip { display: flex; flex-direction: column; gap: 4px; min-height: 96px; padding: 18px 20px; border-radius: 16px; border: 1px solid var(--hf-hairline); background: var(--hf-canvas); }
+.table-chip-number { font-size: 20px; font-weight: 600; line-height: 1.1; }
+.table-chip-state { font-size: 13px; font-weight: 600; }
+.table-chip-count { margin-top: auto; font-size: 12px; opacity: .8; }
+.table-chip-ready { background: var(--hf-success-text); border-color: transparent; color: var(--hf-on-dark); }
+.table-chip-busy { background: var(--hf-coral); border-color: transparent; color: var(--hf-on-dark); }
+.table-chip-quiet { background: var(--hf-canvas); color: var(--hf-ink); }
+.table-chip-quiet .table-chip-state { color: var(--hf-blue-deep); }
+.table-chip-clear { background: var(--hf-parchment); color: var(--hf-ink-48); }
 .pin-reveal { display: grid; gap: 16px; text-align: center; }
 .pin-reveal-value { margin: 0; font-family: var(--hf-font-display); font-size: 34px; font-weight: 600; letter-spacing: .28em; color: var(--hf-ink); }
 .pin-reveal .form-actions { justify-content: center; }
