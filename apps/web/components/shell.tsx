@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
+  Boxes,
   ChartNoAxesCombined,
   ClipboardList,
   FileUp,
@@ -33,7 +34,10 @@ const managerNavigation: NavigationItem[] = [
 const navigationByRole: Record<StaffRole, NavigationItem[]> = {
   owner: [{ href: '/owner', label: 'Overview', icon: LayoutDashboard }, ...managerNavigation],
   manager: managerNavigation,
-  counter: [{ href: '/counter', label: 'Live queue', icon: ClipboardList }],
+  counter: [
+    { href: '/counter', label: 'Live queue', icon: ClipboardList },
+    { href: '/counter/stock', label: 'Stock', icon: Boxes },
+  ],
   waiter: [{ href: '/waiter', label: 'Assigned tables', icon: UtensilsCrossed }],
 }
 
