@@ -2,6 +2,7 @@
 
 import { useAction, useMutation, useQuery } from 'convex/react'
 import { useEffect, useMemo, useState } from 'react'
+import { ActivityFeed } from '@/components/activity-feed'
 import { DashboardShell } from '@/components/shell'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -166,6 +167,10 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
             <Td className="fine-print muted" title={new Date(entry.at).toLocaleString()}>{relativeTime(entry.at)}</Td>
           </tr>)}</tbody>
         </Table></TableWrap>{auditLive!.length >= 100 && <p className="fine-print muted" style={{ marginTop: 12 }}>Showing the 100 most recent changes.</p>}</Card>}
+    </section>}
+
+    {!isOwner && <section className="page-section" style={{ paddingTop: 0 }}>
+      <ActivityFeed title="Team activity" scopeNote="Counter and waiter activity — who signed in and what they changed, where and when" limit={100} />
     </section>}
 
     <Dialog open={adding} onClose={() => { if (!busy) closeAdd() }} title="Add staff member" description="PINs are hashed with salted PBKDF2 and shown only once here">

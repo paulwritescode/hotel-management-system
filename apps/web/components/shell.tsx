@@ -6,6 +6,7 @@ import {
   ChartNoAxesCombined,
   ClipboardList,
   FileUp,
+  LayoutDashboard,
   LogOut,
   Menu,
   Package,
@@ -30,7 +31,7 @@ const managerNavigation: NavigationItem[] = [
 ]
 
 const navigationByRole: Record<StaffRole, NavigationItem[]> = {
-  owner: managerNavigation,
+  owner: [{ href: '/owner', label: 'Overview', icon: LayoutDashboard }, ...managerNavigation],
   manager: managerNavigation,
   counter: [{ href: '/counter', label: 'Live queue', icon: ClipboardList }],
   waiter: [{ href: '/waiter', label: 'Assigned tables', icon: UtensilsCrossed }],
@@ -47,7 +48,10 @@ export function DashboardShell({ section, children, actions, role = 'manager' }:
   const pathname = usePathname()
   const identity = useStaffIdentity()
   const [menuOpen, setMenuOpen] = useState(false)
-  const staffName = identity?.name ?? roleLabels[role]
+  // Prefer the signed-in role so navigation is consistent across every page (an owner keeps the
+  // owner nav even on shared /manager screens); fall back to the prop for demo/no-session.
+  const navRole: StaffRole = identity?.role ?? role
+  const staffName = identity?.name ?? roleLabels[navRole]
   const staffInitial = staffName.trim().charAt(0).toUpperCase() || 'H'
 
   return <div className="dashboard-shell">
@@ -60,13 +64,13 @@ export function DashboardShell({ section, children, actions, role = 'manager' }:
 
         <div className="sidebar-identity">
           <span className="sidebar-avatar" aria-hidden="true">{staffInitial}</span>
-          <span><strong>{staffName}</strong><small>{identity ? roleLabels[identity.role] : roleLabels[role]}</small></span>
+          <span><strong>{staffName}</strong><small>{roleLabels[navRole]}</small></span>
         </div>
 
         <div className="sidebar-navigation">
           <p className="sidebar-label">Workspace</p>
-          <nav aria-label={`${roleLabels[role]} navigation`}>
-            {navigationByRole[role].map((link) => {
+          <nav aria-label={`${roleLabels[navRole]} navigation`}>
+            {navigationByRole[navRole].map((link) => {
               const active = pathname === link.href
               const Icon = link.icon
               return <Link key={link.href} className={active ? 'sidebar-link sidebar-link-active' : 'sidebar-link'} href={link.href} aria-current={active ? 'page' : undefined} onClick={() => setMenuOpen(false)}>
@@ -96,7 +100,7 @@ export function DashboardShell({ section, children, actions, role = 'manager' }:
 
       <div className="dashboard-topbar">
         <div className="container dashboard-topbar-inner">
-          <div><p className="dashboard-eyebrow">{roleLabels[role]}</p><strong>{section}</strong></div>
+          <div><p className="dashboard-eyebrow">{roleLabels[navRole]}</p><strong>{section}</strong></div>
           {actions && <div className="sub-actions">{actions}</div>}
         </div>
       </div>
@@ -104,6 +108,17 @@ export function DashboardShell({ section, children, actions, role = 'manager' }:
       <main className="dashboard-main">
         <div className="container dashboard-content">{children}</div>
       </main>
+
+      <nav className="mobile-tabbar" aria-label="Primary">
+        {navigationByRole[navRole].slice(0, 5).map((link) => {
+          const active = pathname === link.href
+          const Icon = link.icon
+          return <Link key={link.href} className={active ? 'mobile-tab mobile-tab-active' : 'mobile-tab'} href={link.href} aria-current={active ? 'page' : undefined}>
+            <Icon size={20} strokeWidth={1.8} />
+            <span>{link.label}</span>
+          </Link>
+        })}
+      </nav>
     </div>
   </div>
 }

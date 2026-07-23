@@ -18,10 +18,12 @@ export function LoginForm() {
     setBusy(true)
     try {
       const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin }) })
-      const data = await response.json() as { error?: string; role?: 'counter' | 'waiter' | 'manager' }
+      const data = await response.json() as { error?: string; role?: 'owner' | 'manager' | 'counter' | 'waiter' }
       if (!response.ok || !data.role) throw new Error(data.error ?? 'Unable to sign in')
+      const home = data.role === 'owner' ? '/owner' : `/${data.role}`
       const requested = search.get('next')
-      const allowed = requested && (requested.startsWith(`/${data.role}`) || data.role === 'manager') ? requested : `/${data.role}`
+      const elevated = data.role === 'owner' || data.role === 'manager'
+      const allowed = requested && (requested.startsWith(home) || elevated) ? requested : home
       router.replace(allowed); router.refresh()
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to sign in') } finally { setBusy(false) }
   }

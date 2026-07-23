@@ -16,6 +16,17 @@ export type AuditEntry = {
   at: number
 }
 
+export type ActivityEntry = {
+  _id: Id
+  actorName: string
+  actorRole: StaffRole
+  action: string
+  detail?: string
+  at: number
+}
+
+export type ActivityMetrics = { total: number; signIns: number; activeStaff: number }
+
 export type AnalyticsDashboard = {
   windows: { today: { from: number; to: number }; last7Days: { from: number; to: number } }
   today: { orders: number; revenueKes: number; averageOrderValueKes: number }
@@ -62,6 +73,10 @@ export const api = {
   },
   analytics: {
     dashboard: makeFunctionReference<'query', AuthArgs, AnalyticsDashboard>('analytics:dashboard'),
+  },
+  activity: {
+    feed: makeFunctionReference<'query', AuthArgs & { limit?: number }, ActivityEntry[]>('activity:feed'),
+    metrics: makeFunctionReference<'query', AuthArgs, ActivityMetrics>('activity:metrics'),
   },
   tables: {
     list: makeFunctionReference<'query', AuthArgs, DiningTable[]>('tables:list'),

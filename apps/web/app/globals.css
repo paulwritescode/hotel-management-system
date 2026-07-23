@@ -254,7 +254,8 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 .sidebar-signout button:hover { background: rgba(255,255,255,.06); color: var(--hf-on-dark); }
 .dashboard-workspace { min-width: 0; min-height: 100vh; margin-left: 288px; }
 .dashboard-mobile-header { display: none; }
-.dashboard-topbar { position: sticky; top: 0; z-index: 20; background: rgba(245,245,247,.88); border-bottom: 1px solid rgba(0,0,0,.06); backdrop-filter: saturate(180%) blur(20px); }
+.dashboard-topbar { position: sticky; top: 0; z-index: 20; background: rgba(244,244,245,.88); backdrop-filter: saturate(180%) blur(20px); }
+.dashboard-workspace { border-top: 2px solid var(--hf-ink); }
 .dashboard-topbar-inner { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .dashboard-topbar strong { display: block; font-size: 17px; font-weight: 600; line-height: 1.25; }
 .dashboard-eyebrow { margin: 0 0 3px; color: var(--hf-ink-48); font-size: 11px; font-weight: 600; line-height: 1.2; letter-spacing: .06em; text-transform: uppercase; }
@@ -375,4 +376,35 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 
 @media (max-width: 640px) {
   .staff-row-actions { justify-content: flex-start; }
+}
+
+/* Owner overview + activity feed */
+.owner-links { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; }
+.owner-link-card { display: block; color: inherit; }
+.owner-link-card .card { transition: border-color 150ms ease-out, transform 150ms ease-out; }
+.owner-link-card:hover .card { border-color: var(--hf-ink); }
+.owner-link-card:active .card { transform: scale(.99); }
+.owner-link-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.owner-link-top strong { font-size: 17px; }
+.activity-block .section-heading { margin-bottom: 20px; }
+.activity-metrics { grid-template-columns: repeat(3,1fr); margin-bottom: 20px; }
+.activity-metrics .stat-block strong { font-size: 24px; margin-top: 2px; }
+.activity-cap-note { margin-top: 12px; }
+
+/* Bottom mobile tab bar (hidden on desktop, shown when the sidebar collapses) */
+.mobile-tabbar { display: none; }
+
+@media (max-width: 833px) {
+  .mobile-tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; display: flex; justify-content: space-around; gap: 2px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); background: var(--hf-canvas); border-top: 1px solid var(--hf-hairline); }
+  .mobile-tab { flex: 1 1 0; min-width: 0; min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 12px; color: var(--hf-ink-48); font-size: 10px; font-weight: 600; letter-spacing: 0; text-align: center; }
+  .mobile-tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-tab-active { color: var(--hf-ink); background: var(--hf-parchment); }
+  .dashboard-content { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .owner-links { grid-template-columns: 1fr; }
+  .activity-metrics { grid-template-columns: 1fr; }
+}
+
+@media print {
+  .mobile-tabbar { display: none !important; }
+  .dashboard-workspace { border-top: 0 !important; }
 }
