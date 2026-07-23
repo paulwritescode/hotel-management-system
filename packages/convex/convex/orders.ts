@@ -58,6 +58,19 @@ async function decrementStock(ctx: any, lines: Array<{ itemId: any; quantity: nu
   }
 }
 
+// Returns the ordered quantities to stock when an order is cancelled before it is served.
+// Only tracked items are affected. An item that had sold out (quantity 0) is re-enabled once
+// stock is restored; an item a manager deliberately disabled at a positive count is left as-is.
+async function restoreStock(ctx: any, lines: Array<{ itemId: any; quantity: number }>) {
+  for (const line of lines) {
+    const item = await ctx.db.get(line.itemId)
+    if (!item || item.quantityOnHand === undefined) continue
+    const restored = item.quantityOnHand + line.quantity
+    const available = item.quantityOnHand === 0 ? restored > 0 : item.available
+    await ctx.db.patch(item._id, { quantityOnHand: restored, available, updatedAt: Date.now() })
+  }
+}
+
 export const placeFromSession = mutationGeneric({
   args: { restaurantId: v.id('restaurants'), phone: v.string() },
   handler: async (ctx, args) => {
@@ -176,8 +189,9 @@ export const cancel = mutationGeneric({
     if (['served', 'closed', 'cancelled'].includes(order.status)) throw new Error(`A ${order.status} order cannot be cancelled`)
     const reason = args.reason.trim()
     if (reason.length < 3 || reason.length > 500) throw new Error('Cancellation reason must be 3 to 500 characters')
+    await restoreStock(ctx, order.lines)
     await ctx.db.patch(args.orderId, { status: 'cancelled', cancellationReason: reason, cancelledByStaffId: staff._id, closedAt: Date.now() })
-    await logActivity(ctx.db, staff, 'order_cancel', `Cancelled order #${order.reference?.split('-').at(-1) ?? order.tableNumber}`)
+    await logActivity(ctx.db, staff, 'order_cancel', `Cancelled order #${order.reference?.split('-').at(-1) ?? order.tableNumber} and returned stock`)
     return args.orderId
   },
 })
