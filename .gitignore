@@ -13,5 +13,6 @@ coverage/
 .wrangler/
 .vercel/
 packages/convex/convex/_generated/
+*.tsbuildinfo
 .DS_Store
 *.log
