@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/toast'
 import { useAuthArgs, useBackendAvailable } from '@/components/providers'
 import { api } from '@/lib/convex'
 import { demoItems, demoOrders } from '@/lib/demo-data'
+import { downloadOrderSummary } from '@/lib/receipt'
 import { orderReferenceShort, type Item, type Order } from '@/lib/models'
 
 const nextStatus: Partial<Record<Order['status'], { status: Order['status']; label: string }>> = {
@@ -81,6 +82,11 @@ export function CounterDashboard() {
     } catch { setOrders(before); notify('The order update failed and was reverted', 'error') }
   }
 
+  async function summary(order: Order) {
+    try { await downloadOrderSummary(order); notify('Order summary downloaded') }
+    catch { notify('Could not generate the order summary', 'error') }
+  }
+
   async function submitCancel(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!cancelOrder) return
@@ -141,6 +147,7 @@ export function CounterDashboard() {
               </div>
               <div className="order-actions">
                 {action && <Button size="small" onClick={() => move(order, action.status)}>{action.label}</Button>}
+                <Button size="small" variant="secondary" icon={false} onClick={() => { void summary(order) }}>Summary</Button>
                 {!['served', 'closed'].includes(order.status) && <Button size="small" variant="outline" onClick={() => setCancelOrder(order)}>Cancel</Button>}
               </div>
             </footer>
