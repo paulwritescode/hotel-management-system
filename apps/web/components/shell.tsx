@@ -65,9 +65,9 @@ export function DashboardShell({ section, children, actions, role = 'manager' }:
   return <div className="dashboard-shell">
     <aside id="staff-navigation" className={menuOpen ? 'dashboard-sidebar dashboard-sidebar-open' : 'dashboard-sidebar'} aria-label="Staff navigation">
       <div className="dashboard-sidebar-inner">
-        <Link className="sidebar-brand" href="/" onClick={() => setMenuOpen(false)}>
-          <span className="sidebar-brand-mark" aria-hidden="true"><UtensilsCrossed size={18} strokeWidth={1.8} /></span>
-          <span><strong>Heavenly Foods</strong><small>Restaurant operations</small></span>
+        <Link className="sidebar-brand" href="/" onClick={() => setMenuOpen(false)} aria-label="Heavenly Foods">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="sidebar-logo" src="/logo-3.png" alt="Heavenly Foods" />
         </Link>
 
         <div className="sidebar-identity">
@@ -99,7 +99,10 @@ export function DashboardShell({ section, children, actions, role = 'manager' }:
 
     <div className="dashboard-workspace">
       <header className="dashboard-mobile-header">
-        <Link className="dashboard-mobile-brand" href="/"><UtensilsCrossed size={17} strokeWidth={1.8} /><span>Heavenly Foods</span></Link>
+        <Link className="dashboard-mobile-brand" href="/" aria-label="Heavenly Foods">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="mobile-logo" src="/logo-1.png" alt="Heavenly Foods" />
+        </Link>
         <button className="dashboard-menu-button" type="button" aria-label={menuOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={menuOpen} aria-controls="staff-navigation" onClick={() => setMenuOpen((open) => !open)}>
           {menuOpen ? <X size={17} /> : <Menu size={17} />}
           <span>{menuOpen ? 'Close' : 'Menu'}</span>

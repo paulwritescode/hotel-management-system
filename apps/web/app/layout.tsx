@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   description: 'Live restaurant operations powered by WhatsApp',
   applicationName: 'Heavenly Foods',
   appleWebApp: { capable: true, title: 'Heavenly Foods', statusBarStyle: 'black-translucent' },
-  icons: { icon: '/icon.svg', apple: '/icon.svg' },
+  icons: { icon: '/favicon.ico', apple: '/icon.svg' },
 }
 
 export const viewport: Viewport = {
