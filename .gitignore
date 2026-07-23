@@ -1,0 +1,17 @@
+node_modules/
+.pnpm-store/
+.turbo/
+.env
+.env.*
+!.env.example
+.dev.vars
+!.dev.vars.example
+.next/
+out/
+dist/
+coverage/
+.wrangler/
+.vercel/
+packages/convex/convex/_generated/
+.DS_Store
+*.log
