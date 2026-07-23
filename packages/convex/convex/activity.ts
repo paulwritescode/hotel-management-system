@@ -31,6 +31,26 @@ export const feed = queryGeneric({
   },
 })
 
+// Most recent activity timestamp per staff member, for the staff screen's "Last active" column.
+// Manager/owner only; the caller maps it against rows they are already permitted to see.
+export const lastActiveByStaff = queryGeneric({
+  args: { token: v.string(), restaurantId: v.id('restaurants') },
+  handler: async (ctx, args) => {
+    await requireStaff(ctx.db, args.token, ['manager', 'owner'], String(args.restaurantId))
+    const rows = await ctx.db
+      .query('activityLog')
+      .withIndex('by_restaurant_at', (query: any) => query.eq('restaurantId', args.restaurantId))
+      .order('desc')
+      .take(1000)
+    const latest: Record<string, number> = {}
+    for (const row of rows) {
+      const key = String(row.actorStaffId)
+      if (!(key in latest)) latest[key] = row.at
+    }
+    return latest
+  },
+})
+
 // Compact counts for the last 24 hours, scoped the same way as the feed.
 export const metrics = queryGeneric({
   args: { token: v.string(), restaurantId: v.id('restaurants') },

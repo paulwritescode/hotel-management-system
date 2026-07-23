@@ -80,6 +80,7 @@ export const api = {
   activity: {
     feed: makeFunctionReference<'query', AuthArgs & { limit?: number }, ActivityEntry[]>('activity:feed'),
     metrics: makeFunctionReference<'query', AuthArgs, ActivityMetrics>('activity:metrics'),
+    lastActive: makeFunctionReference<'query', AuthArgs, Record<string, number>>('activity:lastActiveByStaff'),
   },
   tables: {
     list: makeFunctionReference<'query', AuthArgs, DiningTable[]>('tables:list'),

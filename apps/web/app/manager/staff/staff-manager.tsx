@@ -44,6 +44,7 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
 
   const live = useQuery(api.staff.listVisible, backend ? auth! : 'skip')
   const auditLive = useQuery(api.staff.auditTrail, backend && isOwner ? auth! : 'skip')
+  const lastActive = useQuery(api.activity.lastActive, backend ? auth! : 'skip')
   const createStaff = useAction(api.staff.create)
   const updateStaff = useMutation(api.staff.update)
   const setPin = useAction(api.staff.setPin)
@@ -146,20 +147,24 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
     ? 'Manage manager, counter and waiter access without exposing stored PINs'
     : 'Manage counter and waiter access without exposing stored PINs'
 
-  return <DashboardShell section="Staff" role={actorRole} actions={<Button size="small" disabled={assignableRoles.length === 0} onClick={() => setAdding(true)}>Add staff</Button>}>
+  return <DashboardShell section="Staff" role={actorRole}>
     <section className="page-section">
-      <div className="section-heading"><div><p className="caption">Access and roles</p><h1>Staff</h1><p className="muted">{description}</p></div></div>
+      <div className="section-heading">
+        <div><p className="caption">Access and roles</p><h1>Staff</h1><p className="muted">{description}</p></div>
+        <Button size="small" disabled={assignableRoles.length === 0} onClick={() => setAdding(true)}>Add staff</Button>
+      </div>
 
       {rows.length === 0 ? <Card><p className="muted">No counter or waiter staff yet.</p></Card>
         : <Card className="staff-table-card"><TableWrap><Table>
-          <thead><tr><Th>Name</Th><Th>Role</Th><Th>Status</Th><Th>Last active</Th><Th>Actions</Th></tr></thead>
+          <thead><tr><Th>Name</Th><Th>Role</Th><Th>Status</Th><Th>Last active</Th><Th className="staff-actions-col">Actions</Th></tr></thead>
           <tbody>{rows.map((person) => {
             const actionable = canManageStaff(actorRole, actorId, person)
+            const activeAt = lastActive?.[person._id]
             return <tr key={person._id} className={person.enabled ? 'staff-row staff-row-active' : 'staff-row staff-row-disabled'}>
-              <Td><span className="body-strong">{person.name}</span>{person._id === actorId && <span className="fine-print muted"> · you</span>}</Td>
-              <Td className="staff-role">{person.role}</Td>
-              <Td><span className="status-tag"><span className="status-bar" aria-hidden="true" />{person.enabled ? 'Active' : 'Disabled'}</span></Td>
-              <Td className="fine-print muted">—</Td>
+              <Td><div className="staff-name-cell"><span className="staff-avatar">{person.name.trim().charAt(0).toUpperCase()}</span><span><span className="body-strong">{person.name}</span>{person._id === actorId && <span className="fine-print muted"> · you</span>}</span></div></Td>
+              <Td><span className="staff-role-pill">{person.role}</span></Td>
+              <Td><span className={person.enabled ? 'staff-status staff-status-active' : 'staff-status staff-status-disabled'}><span className="staff-status-dot" aria-hidden="true" />{person.enabled ? 'Active' : 'Disabled'}</span></Td>
+              <Td className="fine-print muted">{activeAt ? <span title={new Date(activeAt).toLocaleString()}>{relativeTime(activeAt)}</span> : 'Never'}</Td>
               <Td>{actionable
                 ? <div className="staff-row-actions"><Button size="small" variant="ghost" onClick={() => setEditing(person)}>Edit</Button><Button size="small" variant="ghost" icon={false} onClick={() => toggle(person)}>{person.enabled ? 'Disable' : 'Enable'}</Button><Button size="small" variant="ghost" icon={false} onClick={() => setPinTarget(person)}>Reset PIN</Button><Button size="small" variant="outline" onClick={() => setRemoveTarget(person)}>Remove</Button></div>
                 : <span className="fine-print muted">—</span>}</Td>
