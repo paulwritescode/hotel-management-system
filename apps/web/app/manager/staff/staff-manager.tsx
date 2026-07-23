@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ActivityFeed } from '@/components/activity-feed'
 import { DashboardShell } from '@/components/shell'
 import { Button } from '@/components/ui/button'
+import { RowActions } from '@/components/ui/row-actions'
 import { Card } from '@/components/ui/card'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -165,8 +166,13 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
               <Td><span className="staff-role-pill">{person.role}</span></Td>
               <Td><span className={person.enabled ? 'staff-status staff-status-active' : 'staff-status staff-status-disabled'}><span className="staff-status-dot" aria-hidden="true" />{person.enabled ? 'Active' : 'Disabled'}</span></Td>
               <Td className="fine-print muted">{activeAt ? <span title={new Date(activeAt).toLocaleString()}>{relativeTime(activeAt)}</span> : 'Never'}</Td>
-              <Td>{actionable
-                ? <div className="staff-row-actions"><Button size="small" variant="ghost" onClick={() => setEditing(person)}>Edit</Button><Button size="small" variant="ghost" icon={false} onClick={() => toggle(person)}>{person.enabled ? 'Disable' : 'Enable'}</Button><Button size="small" variant="ghost" icon={false} onClick={() => setPinTarget(person)}>Reset PIN</Button><Button size="small" variant="outline" onClick={() => setRemoveTarget(person)}>Remove</Button></div>
+              <Td className="staff-actions-col">{actionable
+                ? <RowActions label={`Actions for ${person.name}`} actions={[
+                    { label: 'Edit', onClick: () => setEditing(person) },
+                    { label: person.enabled ? 'Disable' : 'Enable', onClick: () => toggle(person) },
+                    { label: 'Reset PIN', onClick: () => setPinTarget(person) },
+                    { label: 'Remove', danger: true, onClick: () => setRemoveTarget(person) },
+                  ]} />
                 : <span className="fine-print muted">—</span>}</Td>
             </tr>
           })}</tbody>

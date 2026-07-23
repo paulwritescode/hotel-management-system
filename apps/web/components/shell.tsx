@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
+  BellRing,
   Boxes,
   ChartNoAxesCombined,
   ClipboardList,
@@ -38,7 +39,10 @@ const navigationByRole: Record<StaffRole, NavigationItem[]> = {
     { href: '/counter', label: 'Live queue', icon: ClipboardList },
     { href: '/counter/stock', label: 'Stock', icon: Boxes },
   ],
-  waiter: [{ href: '/waiter', label: 'Assigned tables', icon: UtensilsCrossed }],
+  waiter: [
+    { href: '/waiter', label: 'My tables', icon: UtensilsCrossed },
+    { href: '/waiter/alerts', label: 'Alerts', icon: BellRing },
+  ],
 }
 
 const roleLabels: Record<StaffRole, string> = {

@@ -468,3 +468,55 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
   .mobile-tabbar { display: none !important; }
   .dashboard-workspace { border-top: 0 !important; }
 }
+
+/* Row-action dropdown menu (tables with per-row actions) */
+.row-actions { position: relative; display: inline-block; }
+.row-actions-trigger { width: 40px; height: 40px; display: inline-grid; place-items: center; border: 1px solid var(--hf-hairline); border-radius: 9999px; background: var(--hf-canvas); color: var(--hf-ink); cursor: pointer; }
+.row-actions-trigger:hover { background: var(--hf-parchment); }
+.row-actions-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; min-width: 184px; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--hf-hairline); border-radius: 12px; background: var(--hf-canvas); box-shadow: rgba(0,0,0,.08) 0 4px 6px 0, rgba(36,36,36,.08) 0 12px 16px -4px; }
+.row-actions-item { min-height: 40px; padding: 0 12px; display: flex; align-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--hf-ink); font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
+.row-actions-item:hover { background: var(--hf-parchment); }
+.row-actions-item-danger { color: var(--hf-coral); }
+.row-actions-item:disabled { color: var(--hf-ink-48); cursor: not-allowed; }
+
+/* Install prompt banner */
+.install-prompt { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 90; width: min(560px, calc(100% - 32px)); display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px 12px 18px; border-radius: 14px; background: var(--hf-ink); color: var(--hf-on-dark); box-shadow: rgba(36,36,36,.24) 0 12px 28px -8px; }
+.install-prompt-body { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.install-prompt-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.install-prompt-close { width: 36px; height: 36px; display: inline-grid; place-items: center; border: 0; border-radius: 9999px; background: transparent; color: var(--hf-muted-on-dark); cursor: pointer; }
+.install-prompt-close:hover { background: rgba(255,255,255,.12); color: var(--hf-on-dark); }
+
+/* Waiter action banner (coral) */
+.waiter-banner { width: 100%; display: flex; align-items: center; gap: 10px; margin-bottom: 20px; padding: 14px 18px; border: 0; border-radius: 14px; background: var(--hf-coral); color: var(--hf-on-dark); font-size: 15px; font-weight: 600; text-align: left; }
+.waiter-banner strong { font-weight: 700; }
+.waiter-banner-cta { cursor: pointer; }
+.waiter-banner-action { margin-left: auto; padding: 6px 14px; border-radius: 9999px; background: rgba(255,255,255,.22); font-size: 13px; font-weight: 700; }
+
+/* Full-screen order-ready alarm */
+.alarm-screen { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 24px; background: rgba(10,10,10,.72); backdrop-filter: blur(4px); }
+.alarm-card { width: min(460px, 100%); max-height: calc(100vh - 48px); overflow: auto; text-align: center; padding: 32px 28px; border-radius: 24px; background: var(--hf-canvas); box-shadow: rgba(0,0,0,.3) 0 24px 60px -12px; }
+.alarm-pulse { display: inline-grid; place-items: center; width: 68px; height: 68px; margin-bottom: 16px; border-radius: 9999px; background: var(--hf-coral); color: var(--hf-on-dark); animation: alarm-pulse 1s ease-in-out infinite; }
+@keyframes alarm-pulse { 0%,100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,90,77,.5); } 50% { transform: scale(1.06); box-shadow: 0 0 0 16px rgba(255,90,77,0); } }
+.alarm-eyebrow { margin: 0; color: var(--hf-coral); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.alarm-table { margin: 6px 0 2px; font-size: 40px; font-weight: 600; line-height: 1.1; letter-spacing: -1px; }
+.alarm-customer { margin: 0 0 16px; color: var(--hf-ink-48); font-weight: 600; }
+.alarm-lines { list-style: none; margin: 0 0 24px; padding: 16px; border-radius: 14px; background: var(--hf-parchment); font-size: 15px; text-align: left; }
+.alarm-lines li { margin: 6px 0; }
+.alarm-actions { display: flex; flex-direction: column; gap: 10px; }
+.alarm-actions .button { width: 100%; }
+.alarm-serve { min-height: 52px; font-size: 16px; }
+
+/* Waiter alerts settings rows */
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; border-top: 1px solid var(--hf-hairline); }
+.settings-row:first-child { padding-top: 0; border-top: 0; }
+.settings-row > div { min-width: 0; }
+.settings-row strong { font-size: 15px; }
+.alerts-note { margin-top: 20px; }
+
+@media (max-width: 640px) {
+  .row-actions-menu { position: fixed; left: 16px; right: 16px; top: auto; bottom: 84px; min-width: 0; }
+  .waiter-banner { font-size: 14px; }
+  .install-prompt { bottom: 84px; flex-wrap: wrap; }
+  .install-prompt-body { flex: 1 1 100%; }
+  .settings-row { flex-direction: column; align-items: flex-start; gap: 10px; }
+}

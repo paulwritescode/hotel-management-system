@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { cookies } from 'next/headers'
+import { InstallPrompt } from '@/components/install-prompt'
 import { PwaRegister } from '@/components/pwa-register'
 import { Providers } from '@/components/providers'
 import { ToastProvider } from '@/components/ui/toast'
@@ -31,5 +32,5 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     name: session.name,
     role: session.role,
   } : null
-  return <html lang="en"><body><Providers initialAuth={initialAuth}><ToastProvider>{children}</ToastProvider><PwaRegister /></Providers></body></html>
+  return <html lang="en"><body><Providers initialAuth={initialAuth}><ToastProvider>{children}</ToastProvider><InstallPrompt /><PwaRegister /></Providers></body></html>
 }
