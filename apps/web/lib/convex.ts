@@ -1,7 +1,28 @@
 import { makeFunctionReference } from 'convex/server'
-import type { DiningTable, Id, Item, Order, Staff } from './models'
+import type { DiningTable, Id, Item, Order, PaymentMethod, Staff } from './models'
 
 export type AuthArgs = { token: string; restaurantId: Id }
+
+export type RestaurantSettings = {
+  name: string
+  acceptedPaymentMethods: PaymentMethod[]
+  mpesaTillNumber?: string
+}
+
+export type SettlementSummary = {
+  window: { from: number; to: number }
+  ordersServed: number
+  orderedValueKes: number
+  settledRevenueKes: number
+  waivedValueKes: number
+  unpaidValueKes: number
+  paidCount: number
+  waivedCount: number
+  unpaidCount: number
+  refundsDueCount: number
+  byMethod: Array<{ method: PaymentMethod; count: number; valueKes: number }>
+  unpaidOrders: Array<{ _id: Id; reference?: string; tableNumber: number; customerName: string; totalKes: number; servedAt: number }>
+}
 type ItemInput = Omit<Item, '_id' | 'archived'>
 type StaffRole = Staff['role']
 
@@ -73,6 +94,16 @@ export const api = {
     placeManual: makeFunctionReference<'mutation', AuthArgs & { tableNumber: number; customerName: string; customerPhone?: string; lines: Array<{ itemId: Id; quantity: number }> }, { orderId: Id; totalKes: number; lines: Order['lines'] }>('orders:placeManual'),
     waiterOrders: makeFunctionReference<'query', AuthArgs, Order[]>('orders:waiterOrders'),
     waiterStats: makeFunctionReference<'query', AuthArgs, { ordersServedToday: number; medianAcknowledgedToServedMs: number | null }>('orders:waiterStats'),
+  },
+  settlement: {
+    markPaid: makeFunctionReference<'mutation', { token: string; orderId: Id; method: PaymentMethod }, Id>('settlement:markPaid'),
+    waive: makeFunctionReference<'mutation', { token: string; orderId: Id; reason: string }, Id>('settlement:waive'),
+    correct: makeFunctionReference<'mutation', { token: string; orderId: Id; toStatus: Order['paymentStatus']; method?: PaymentMethod | undefined; reason: string }, Id>('settlement:correct'),
+    summary: makeFunctionReference<'query', AuthArgs, SettlementSummary>('settlement:summary'),
+  },
+  restaurants: {
+    settings: makeFunctionReference<'query', AuthArgs, RestaurantSettings>('restaurants:settings'),
+    updateSettings: makeFunctionReference<'mutation', AuthArgs & { acceptedPaymentMethods: PaymentMethod[]; mpesaTillNumber?: string | undefined }, RestaurantSettings>('restaurants:updateSettings'),
   },
   analytics: {
     dashboard: makeFunctionReference<'query', AuthArgs, AnalyticsDashboard>('analytics:dashboard'),

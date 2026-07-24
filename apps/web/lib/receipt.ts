@@ -1,10 +1,22 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
-import { orderReferenceShort, type Order } from '@/lib/models'
+import { orderReferenceShort, paymentMethodLabels, type Order, type PaymentMethod } from '@/lib/models'
 
 // An "Order Summary" PDF — a record of what was ordered, NOT a payment receipt or tax invoice.
 // Titled "Order Summary" with the mandatory settle-at-the-counter disclaimer. Branded with
 // logo-2; numbers set in JetBrains Mono. Always white. 80mm-wide stock (also suits thermal).
+//
+// Addendum 04 §3 — the document tells the diner HOW to pay; it MUST NEVER assert that they HAVE
+// paid. It is generated once at order confirmation, before settlement, and carries no payment
+// status, no QR/link, and none of Add. 01 §3.2's forbidden phrases. Only the payment methods the
+// restaurant has configured are rendered. The order reference is the largest text on the page
+// (§3.4) because it is what the diner reads aloud and staff search on.
+
+// Payment configuration is display-only; the system never transacts against the till (§5.4).
+export type ReceiptPaymentConfig = {
+  acceptedPaymentMethods: PaymentMethod[]
+  mpesaTillNumber?: string
+}
 
 const MM = 2.834645669
 const WIDTH = 80 * MM
@@ -41,7 +53,7 @@ async function embedTtf(pdf: PDFDocument, path: string, fallback: PDFFont) {
   }
 }
 
-export async function buildOrderSummaryPdf(order: Order): Promise<Uint8Array> {
+export async function buildOrderSummaryPdf(order: Order, payment?: ReceiptPaymentConfig): Promise<Uint8Array> {
   const pdf = await PDFDocument.create()
   pdf.registerFontkit(fontkit)
   const font = await pdf.embedFont(StandardFonts.Helvetica)
@@ -52,7 +64,11 @@ export async function buildOrderSummaryPdf(order: Order): Promise<Uint8Array> {
   const monoBold = await embedTtf(pdf, '/fonts/JetBrainsMono-Bold.ttf', courier)
   const logo = await embedImage(pdf, '/logo-2.png')
 
-  const height = 148 * MM + order.lines.length * 6 * MM
+  // Only render the methods the restaurant has configured (§3.3). The fixed order keeps the
+  // section stable regardless of how the array was stored.
+  const methodOrder: PaymentMethod[] = ['cash', 'mpesa', 'card', 'other']
+  const acceptedMethods = methodOrder.filter((method) => (payment?.acceptedPaymentMethods ?? []).includes(method))
+  const height = 162 * MM + order.lines.length * 6 * MM + acceptedMethods.length * 5 * MM
   const page = pdf.addPage([WIDTH, height])
   page.drawRectangle({ x: 0, y: 0, width: WIDTH, height, color: rgb(1, 1, 1) })
   const ink = rgb(0.11, 0.11, 0.11)
@@ -85,13 +101,21 @@ export async function buildOrderSummaryPdf(order: Order): Promise<Uint8Array> {
     center(RESTAURANT_NAME, bold, 12)
   }
 
-  center('Order Summary', bold, 13)
-  y -= 4
+  center('Order Summary', bold, 11)
+  y -= 2
+
+  // §3.4 — the reference is promoted to the visual anchor: the largest text on the page, since it
+  // is what a person reads aloud across the counter.
+  const shortRef = orderReferenceShort(order.reference)
+  const referenceText = order.reference ?? (shortRef ? `#${shortRef}` : null)
+  if (referenceText) {
+    center('ORDER REFERENCE', font, 7, muted)
+    y -= 1
+    center(referenceText, monoBold, 20)
+  }
+  y -= 2
   rule()
 
-  const shortRef = orderReferenceShort(order.reference)
-  if (order.reference) row('Reference', order.reference, mono, 8)
-  else if (shortRef) row('Reference', `#${shortRef}`, mono, 8)
   row('Table', String(order.tableNumber), mono, 8)
   row('Customer', order.customerName, font, 8)
   if (order.servedByName) row('Served by', order.servedByName, font, 8)
@@ -108,11 +132,34 @@ export async function buildOrderSummaryPdf(order: Order): Promise<Uint8Array> {
   }
   rule()
   row('TOTAL', `KES ${order.totalKes.toLocaleString()}`, monoBold, 11, ink)
-  y -= 12
+  y -= 10
 
-  // Footer — left aligned.
+  // §3.2 — HOW TO PAY, between the total and the footer disclaimer. Tells the diner how to pay;
+  // it never states that payment has occurred, and carries no status, no QR, and no link.
+  if (acceptedMethods.length > 0) {
+    rule()
+    left('HOW TO PAY', bold, 8, ink)
+    y -= 2
+    left('Please pay at the counter and show this summary.', font, 7, muted)
+    y -= 4
+    left('We accept:', font, 7, muted)
+    for (const method of acceptedMethods) {
+      const label = method === 'mpesa' && payment?.mpesaTillNumber
+        ? `M-Pesa Till ${payment.mpesaTillNumber}`
+        : paymentMethodLabels[method]
+      page.drawText(label, { x: MARGIN + 8, y, size: 8, font, color: ink })
+      y -= 8 + 4
+    }
+    y -= 2
+  }
+
+  rule()
+  // Add. 01 §3.2 disclaimer, strengthened by §3.1 — present in both session languages.
   left('This is an order summary, not a payment receipt.', font, 7, muted)
   left('Please settle at the counter.', font, 7, muted)
+  y -= 3
+  left('Hii ni muhtasari wa oda, si risiti ya malipo.', font, 7, muted)
+  left('Tafadhali lipa kwenye kaunta.', font, 7, muted)
   y -= 4
   left(RESTAURANT_NAME, font, 7, muted)
   if (CONTACT) left(CONTACT, mono, 7, muted)
@@ -120,8 +167,8 @@ export async function buildOrderSummaryPdf(order: Order): Promise<Uint8Array> {
   return pdf.save()
 }
 
-export async function downloadOrderSummary(order: Order): Promise<void> {
-  const bytes = await buildOrderSummaryPdf(order)
+export async function downloadOrderSummary(order: Order, payment?: ReceiptPaymentConfig): Promise<void> {
+  const bytes = await buildOrderSummaryPdf(order, payment)
   const buffer = bytes.slice().buffer as ArrayBuffer
   const blob = new Blob([buffer], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)

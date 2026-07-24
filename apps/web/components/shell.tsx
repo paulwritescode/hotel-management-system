@@ -13,8 +13,10 @@ import {
   Menu,
   Package,
   QrCode,
+  Settings,
   UtensilsCrossed,
   Users,
+  Wallet,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -26,10 +28,12 @@ type NavigationItem = { href: string; label: string; icon: LucideIcon }
 
 const managerNavigation: NavigationItem[] = [
   { href: '/manager', label: 'Analytics', icon: ChartNoAxesCombined },
+  { href: '/manager/settlement', label: 'Settlement', icon: Wallet },
   { href: '/manager/inventory', label: 'Inventory', icon: Package },
   { href: '/manager/inventory/import', label: 'Import menu', icon: FileUp },
   { href: '/manager/tables', label: 'Tables', icon: QrCode },
   { href: '/manager/staff', label: 'Staff', icon: Users },
+  { href: '/manager/settings', label: 'Settings', icon: Settings },
 ]
 
 const navigationByRole: Record<StaffRole, NavigationItem[]> = {

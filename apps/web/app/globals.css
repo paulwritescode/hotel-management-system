@@ -524,3 +524,64 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
   .install-prompt-body { flex: 1 1 100%; }
   .settings-row { flex-direction: column; align-items: flex-start; gap: 10px; }
 }
+
+/* Addendum 04 — Payment settlement.
+   Fulfilment state keeps the coloured left-bar/status treatment; settlement is deliberately
+   rendered as text (SPEC §4.2), never colour-encoded. */
+
+/* Counter reference search (§2.1) */
+.queue-search { margin-bottom: 16px; max-width: 360px; }
+.queue-search .input { min-height: 44px; border-radius: 9999px; font-size: 17px; }
+
+/* A searched-and-matched order card is highlighted, not hidden behind colour semantics. */
+.order-card-match { border-color: var(--hf-ink); box-shadow: 0 0 0 1px var(--hf-ink); }
+
+/* Settlement region on the order card — visually separated from fulfilment actions above it. */
+.settlement-region { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--hf-hairline); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.settlement-actions { display: flex; align-items: center; gap: 12px; }
+.settlement-state { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0; }
+.settlement-state-paid { color: var(--hf-ink-80); }
+.settlement-state-waived { color: var(--hf-ink-48); }
+.settlement-link { background: none; border: 0; padding: 0; font-size: 13px; font-weight: 600; color: var(--hf-ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.settlement-link:hover { color: var(--hf-ink-48); }
+.settlement-refund { display: inline-flex; align-items: center; height: 22px; padding: 0 10px; border-radius: 9999px; background: var(--hf-parchment); color: var(--hf-ink); font-size: 12px; font-weight: 600; border: 1px solid var(--hf-ink); }
+.settlement-unpaid-linger { margin: 0; font-size: 12px; font-weight: 600; color: var(--hf-ink); border-left: 3px solid var(--hf-ink); padding-left: 8px; }
+
+/* Method picker (§2.3) — one tap confirms; each target meets the 44x44 minimum (SPEC §4.9). */
+.method-picker { display: grid; gap: 16px; }
+.method-picker-order { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--hf-hairline); }
+.method-picker-total { margin: 0; font-family: var(--hf-font-display); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.method-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.method-button { min-height: 56px; min-width: 44px; border: 1px solid var(--hf-ink); border-radius: 12px; background: var(--hf-canvas); color: var(--hf-ink); font-size: 16px; font-weight: 600; cursor: pointer; transition: background-color 150ms ease-out, transform 150ms ease-out; }
+.method-button:hover { background: var(--hf-ink); color: var(--hf-on-dark); }
+.method-button:active { transform: scale(.97); }
+
+/* Manager settlement summary (§4.2) */
+.settlement-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.settlement-summary-table { width: 100%; border-collapse: collapse; font-size: 15px; margin-top: 8px; }
+.settlement-summary-table td { padding: 8px 0; border-bottom: 1px solid var(--hf-divider-soft); }
+.settlement-num { text-align: right; font-variant-numeric: tabular-nums; }
+.settlement-row-head td { font-weight: 600; }
+.settlement-row-sub td:first-child { padding-left: 20px; color: var(--hf-ink-48); }
+.settlement-row-unpaid td { font-weight: 600; color: var(--hf-ink); }
+.settlement-row-unpaid td:first-child { border-left: 3px solid var(--hf-ink); padding-left: 8px; }
+.settlement-muted { color: var(--hf-ink-48); }
+.settlement-note { margin-top: 14px; }
+.settlement-empty { margin-top: 12px; }
+.settlement-unpaid-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 12px; }
+.settlement-unpaid-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid var(--hf-hairline); border-radius: 12px; }
+.settlement-unpaid-item p { margin: 0; }
+.settlement-unpaid-actions { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+
+/* Payment settings (§5.4) */
+.settings-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.settings-method { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 16px; border: 1px solid var(--hf-hairline); border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; }
+.settings-method input { width: 20px; height: 20px; }
+.settings-method-on { border-color: var(--hf-ink); background: var(--hf-parchment); }
+
+@media (max-width: 640px) {
+  .settlement-grid { grid-template-columns: 1fr; }
+  .method-grid { grid-template-columns: 1fr; }
+  .settings-methods { grid-template-columns: 1fr; }
+  .settlement-unpaid-item { flex-direction: column; align-items: stretch; }
+}

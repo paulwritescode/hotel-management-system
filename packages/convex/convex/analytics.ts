@@ -22,8 +22,12 @@ export const dashboard = queryGeneric({
       query.eq('restaurantId', args.restaurantId).gte('placedAt', sevenDaysAgo),
     ).collect()
     const valid = orders.filter((order) => order.status !== 'cancelled')
+    // Addendum 04 §4.5 — every revenue figure uses settled-only semantics: Σ totalKes where
+    // paymentStatus = 'paid'. Waived and unpaid orders are excluded from revenue.
+    const isPaid = (order: { paymentStatus?: string }) => order.paymentStatus === 'paid'
     const todayOrders = valid.filter((order) => order.placedAt >= todayStart)
-    const revenueTodayKes = todayOrders.reduce((sum, order) => sum + order.totalKes, 0)
+    const todayPaid = todayOrders.filter(isPaid)
+    const revenueTodayKes = todayPaid.reduce((sum, order) => sum + order.totalKes, 0)
 
     const itemCounts = new Map<string, { itemId: string; name: string; quantity: number; orderCount: number }>()
     for (const order of valid) {
@@ -38,18 +42,19 @@ export const dashboard = queryGeneric({
       }
     }
 
+    // Orders counts reflect orders placed; revenue reflects settled orders only (§4.5).
     const ordersByHour = Array.from({ length: 24 }, (_, hour) => ({ hour, orders: 0, revenueKes: 0 }))
     for (const order of valid) {
       const bucket = ordersByHour[(new Date(order.placedAt).getUTCHours() + 3) % 24]!
       bucket.orders += 1
-      bucket.revenueKes += order.totalKes
+      if (isPaid(order)) bucket.revenueKes += order.totalKes
     }
 
     const tableMap = new Map<number, { tableNumber: number; orders: number; revenueKes: number; turnarounds: number[] }>()
     for (const order of valid) {
       const entry = tableMap.get(order.tableNumber) ?? { tableNumber: order.tableNumber, orders: 0, revenueKes: 0, turnarounds: [] as number[] }
       entry.orders += 1
-      entry.revenueKes += order.totalKes
+      if (isPaid(order)) entry.revenueKes += order.totalKes
       if (order.servedAt) entry.turnarounds.push(order.servedAt - order.placedAt)
       tableMap.set(order.tableNumber, entry)
     }
@@ -108,7 +113,7 @@ export const dashboard = queryGeneric({
 
     return {
       windows: { today: { from: todayStart, to: now }, last7Days: { from: sevenDaysAgo, to: now } },
-      today: { orders: todayOrders.length, revenueKes: revenueTodayKes, averageOrderValueKes: todayOrders.length ? revenueTodayKes / todayOrders.length : 0 },
+      today: { orders: todayOrders.length, revenueKes: revenueTodayKes, averageOrderValueKes: todayPaid.length ? revenueTodayKes / todayPaid.length : 0 },
       topItems: [...itemCounts.values()].sort((a, b) => b.orderCount - a.orderCount || b.quantity - a.quantity).slice(0, 5),
       lowestRatedItems,
       ordersByHour,

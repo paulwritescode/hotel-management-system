@@ -22,6 +22,8 @@ export type Item = {
 }
 
 export type OrderLine = { itemId: Id; nameSnapshot: string; priceKesSnapshot: number; quantity: number }
+export type PaymentStatus = 'unpaid' | 'paid' | 'waived'
+export type PaymentMethod = 'cash' | 'mpesa' | 'card' | 'other'
 export type Order = {
   _id: Id
   tableNumber: number
@@ -32,10 +34,22 @@ export type Order = {
   totalKes: number
   reference?: string
   status: OrderStatus
+  paymentStatus: PaymentStatus
+  paymentMethod?: PaymentMethod
+  paidAt?: number
+  paidByStaffId?: Id
+  settledByName?: string
+  waivedReason?: string
+  refundDue?: boolean
   placedAt: number
   acknowledgedAt?: number
   servedAt?: number
   servedByName?: string
+}
+
+export const paymentMethods: PaymentMethod[] = ['cash', 'mpesa', 'card', 'other']
+export const paymentMethodLabels: Record<PaymentMethod, string> = {
+  cash: 'Cash', mpesa: 'M-Pesa', card: 'Card', other: 'Other',
 }
 
 // The spoken order number read across the counter, e.g. HF-20260723-0042 → 0042.

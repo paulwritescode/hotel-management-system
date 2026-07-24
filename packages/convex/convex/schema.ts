@@ -7,6 +7,12 @@ export default defineSchema({
     phoneMsisdn: v.string(),
     currency: v.literal('KES'),
     columnMappingProfile: v.optional(v.any()),
+    // Addendum 04 §5.4 — display-only payment configuration. The system never transacts against
+    // any of these; the till number is rendered on the order summary PDF and nowhere else.
+    acceptedPaymentMethods: v.optional(v.array(v.union(
+      v.literal('cash'), v.literal('mpesa'), v.literal('card'), v.literal('other'),
+    ))),
+    mpesaTillNumber: v.optional(v.string()),
     createdAt: v.number(),
   }),
 
@@ -83,6 +89,24 @@ export default defineSchema({
       v.literal('ready'), v.literal('served'), v.literal('closed'),
       v.literal('cancelled'),
     ),
+    // Addendum 04 §1 — settlement is a dimension independent of the fulfilment status above.
+    // Contractually paymentStatus always exists and defaults to 'unpaid' (§5.1): every insert
+    // sets it and every read coalesces a missing value to 'unpaid'. It is stored as optional
+    // only so the schema can be deployed onto pre-Addendum-04 orders; run orders:backfillPayment
+    // once to populate them, after which it can be tightened to a required union.
+    paymentStatus: v.optional(v.union(
+      v.literal('unpaid'), v.literal('paid'), v.literal('waived'),
+    )),
+    paymentMethod: v.optional(v.union(
+      v.literal('cash'), v.literal('mpesa'), v.literal('card'), v.literal('other'),
+    )),
+    paidAt: v.optional(v.number()),
+    paidByStaffId: v.optional(v.id('staff')),
+    // Snapshot of the staff member who set the current settlement state, so the counter card can
+    // render "Paid · <name>" / "Waived · <name>" without a join (Addendum 04 §2.2).
+    settledByName: v.optional(v.string()),
+    waivedReason: v.optional(v.string()),
+    refundDue: v.optional(v.boolean()),
     acknowledgedByStaffId: v.optional(v.id('staff')),
     servedByStaffId: v.optional(v.id('staff')),
     servedByName: v.optional(v.string()),
@@ -97,6 +121,7 @@ export default defineSchema({
     .index('by_restaurant_placedAt', ['restaurantId', 'placedAt'])
     .index('by_restaurant_table', ['restaurantId', 'tableNumber'])
     .index('by_restaurant_reference', ['restaurantId', 'reference'])
+    .index('by_restaurant_payment', ['restaurantId', 'paymentStatus'])
     .index('by_phone', ['customerPhone']),
 
   staffAudit: defineTable({
@@ -138,6 +163,26 @@ export default defineSchema({
   })
     .index('by_restaurant_at', ['restaurantId', 'at'])
     .index('by_item_at', ['itemId', 'at']),
+
+  // Addendum 04 §5.2 — append-only record of every settlement event. A settlement change
+  // without a matching ledger row written in the same mutation is a bug. Corrections append a
+  // new row; they never modify or delete an existing one.
+  settlementLedger: defineTable({
+    restaurantId: v.id('restaurants'),
+    orderId: v.id('orders'),
+    kind: v.union(
+      v.literal('paid'), v.literal('waived'), v.literal('correction'),
+    ),
+    fromStatus: v.string(),
+    toStatus: v.string(),
+    method: v.optional(v.string()),
+    amountKes: v.number(),
+    reason: v.optional(v.string()),
+    staffId: v.id('staff'),
+    at: v.number(),
+  })
+    .index('by_restaurant_at', ['restaurantId', 'at'])
+    .index('by_order_at', ['orderId', 'at']),
 
   sessions: defineTable({
     restaurantId: v.id('restaurants'),
