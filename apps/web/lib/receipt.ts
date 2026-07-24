@@ -109,11 +109,18 @@ export async function buildOrderSummaryPdf(order: Order, payment?: ReceiptPaymen
   const shortRef = orderReferenceShort(order.reference)
   const referenceText = order.reference ?? (shortRef ? `#${shortRef}` : null)
   if (referenceText) {
-    center('ORDER REFERENCE', font, 7, muted)
-    y -= 1
-    center(referenceText, monoBold, 20)
+    const capW = font.widthOfTextAtSize('ORDER REFERENCE', 7)
+    page.drawText('ORDER REFERENCE', { x: MARGIN + (INNER - capW) / 2, y, size: 7, font, color: muted })
+    let refSize = 13
+    while (refSize > 9 && monoBold.widthOfTextAtSize(referenceText, refSize) > INNER) refSize -= 0.5
+    // Equal whitespace above the number (below the caption) and below it (before the rule),
+    // drawn manually so the reference sits balanced rather than crowding the caption.
+    const gap = 11
+    y -= gap + refSize * 0.72
+    const refW = monoBold.widthOfTextAtSize(referenceText, refSize)
+    page.drawText(referenceText, { x: MARGIN + (INNER - refW) / 2, y, size: refSize, font: monoBold, color: ink })
+    y -= gap + 4
   }
-  y -= 2
   rule()
 
   row('Table', String(order.tableNumber), mono, 8)

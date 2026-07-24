@@ -29,13 +29,15 @@ const statusLabels: Record<Order['status'], string> = {
 
 // Tabs across the top of the queue. The statuses that still need attention (everything before
 // "served") show a count indicator; "All" and "Served" do not.
-const queueTabs: Array<{ key: 'all' | Order['status']; label: string; indicates: boolean }> = [
+type QueueTab = 'all' | 'unpaid' | Order['status']
+const queueTabs: Array<{ key: QueueTab; label: string; indicates: boolean }> = [
   { key: 'all', label: 'All', indicates: false },
   { key: 'pending', label: 'New', indicates: true },
   { key: 'acknowledged', label: 'Acknowledged', indicates: true },
   { key: 'preparing', label: 'Preparing', indicates: true },
   { key: 'ready', label: 'Ready', indicates: true },
   { key: 'served', label: 'Served', indicates: false },
+  { key: 'unpaid', label: 'Unpaid', indicates: true },
 ]
 
 // Addendum 04 §2.6 — served-and-unpaid past this many minutes carries a quiet text marker
@@ -45,6 +47,40 @@ const UNPAID_LINGER_MINUTES = 45
 // Addendum 04 §2.4 — a small, consistent set of common waive reasons so the frequent cases are
 // one tap and aggregate cleanly; "Other" opens a free-text field.
 const waiveReasons = ['Staff meal', 'Service recovery', 'Manager comp', 'Other'] as const
+
+// Date window for the queue, mirroring the settlements page control (top-right).
+type DateWindow = 'today' | 'yesterday' | '3d' | 'all'
+const dateWindowOptions: Array<{ key: DateWindow; label: string }> = [
+  { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: '3d', label: 'Last 3 days' },
+  { key: 'all', label: 'All time' },
+]
+const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// The local (Africa/Nairobi) day index an instant falls in, used to group and label by date.
+function dayIndex(at: number): number {
+  return Math.floor((at + NAIROBI_OFFSET_MS) / DAY_MS)
+}
+function dayLabel(at: number, now: number): string {
+  const delta = dayIndex(now) - dayIndex(at)
+  if (delta === 0) return 'Today'
+  if (delta === 1) return 'Yesterday'
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', weekday: 'short', day: '2-digit', month: 'short' }).format(new Date(at))
+}
+// Groups orders (already in reverse-chronological order) into date buckets for the "All time" view.
+function groupByDay(orders: Order[], now: number): Array<{ key: number; label: string; orders: Order[] }> {
+  const groups: Array<{ key: number; label: string; orders: Order[] }> = []
+  const index = new Map<number, { key: number; label: string; orders: Order[] }>()
+  for (const order of orders) {
+    const key = dayIndex(order.placedAt)
+    let group = index.get(key)
+    if (!group) { group = { key, label: dayLabel(order.placedAt, now), orders: [] }; index.set(key, group); groups.push(group) }
+    group.orders.push(order)
+  }
+  return groups
+}
 
 function elapsedLabel(placedAt: number, now: number) {
   const minutes = Math.max(0, Math.floor((now - placedAt) / 60_000))
@@ -82,7 +118,8 @@ export function CounterDashboard() {
   const [orders, setOrders] = useState<Order[]>(backend ? [] : demoOrders)
   const [items, setItems] = useState<Item[]>(backend ? [] : demoItems)
   const [now, setNow] = useState(Date.now())
-  const [tab, setTab] = useState<'all' | Order['status']>('all')
+  const [tab, setTab] = useState<QueueTab>('all')
+  const [dateWindow, setDateWindow] = useState<DateWindow>('today')
   const [search, setSearch] = useState('')
   const [manualOpen, setManualOpen] = useState(false)
   const [cancelOrder, setCancelOrder] = useState<Order | null>(null)
@@ -105,15 +142,30 @@ export function CounterDashboard() {
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(timer) }, [])
 
   const active = useMemo(() => orders.filter((order) => !['closed', 'cancelled'].includes(order.status)), [orders])
+  // Filter the open queue by placed date, matching the settlements window control.
+  const inWindow = useMemo(() => {
+    const dayStart = Math.floor((now + NAIROBI_OFFSET_MS) / DAY_MS) * DAY_MS - NAIROBI_OFFSET_MS
+    return active.filter((order) => {
+      if (dateWindow === 'all') return true
+      if (dateWindow === 'today') return order.placedAt >= dayStart
+      if (dateWindow === 'yesterday') return order.placedAt >= dayStart - DAY_MS && order.placedAt < dayStart
+      return order.placedAt >= now - 3 * DAY_MS
+    })
+  }, [active, dateWindow, now])
   const counts = useMemo(() => {
-    const map: Record<string, number> = { all: active.length }
-    for (const order of active) map[order.status] = (map[order.status] ?? 0) + 1
+    const map: Record<string, number> = { all: inWindow.length }
+    for (const order of inWindow) map[order.status] = (map[order.status] ?? 0) + 1
+    map.unpaid = inWindow.filter((order) => (order.paymentStatus ?? 'unpaid') === 'unpaid').length
     return map
-  }, [active])
+  }, [inWindow])
   const trimmedSearch = search.trim()
   // §2.1 — a search ignores the status tab and scans the whole open queue; a match is highlighted.
-  const searchResults = useMemo(() => trimmedSearch ? active.filter((order) => matchesReference(order, trimmedSearch)) : null, [active, trimmedSearch])
-  const visible = searchResults ?? (tab === 'all' ? active : active.filter((order) => order.status === tab))
+  const searchResults = useMemo(() => trimmedSearch ? inWindow.filter((order) => matchesReference(order, trimmedSearch)) : null, [inWindow, trimmedSearch])
+  const visible = searchResults ?? (
+    tab === 'all' ? inWindow
+      : tab === 'unpaid' ? inWindow.filter((order) => (order.paymentStatus ?? 'unpaid') === 'unpaid')
+        : inWindow.filter((order) => order.status === tab)
+  )
 
   // Optimistic settlement patch. Explicit undefined is used to clear fields (e.g. a correction
   // back to unpaid), so the change map permits undefined values.
@@ -243,7 +295,49 @@ export function CounterDashboard() {
     </div>
   }
 
-  return <DashboardShell role="counter" section="Live queue" actions={<><span className="caption">{counts.all ?? 0} open</span><Button size="small" onClick={() => setManualOpen(true)}>New order</Button></>}>
+  function renderCard(order: Order) {
+    const action = nextStatus[order.status]
+    const highlighted = Boolean(searchResults) && matchesReference(order, trimmedSearch)
+    // A served order that is still unpaid is money at risk — flag it true red.
+    const unpaidServed = order.status === 'served' && (order.paymentStatus ?? 'unpaid') === 'unpaid'
+    return <article key={order._id} className={`order-card order-card-${order.status}${unpaidServed ? ' order-card-unpaid' : ''}${highlighted ? ' order-card-match' : ''}`}>
+      <header className="order-card-head">
+        <div>
+          {orderReferenceShort(order.reference) && <span className="order-reference">#{orderReferenceShort(order.reference)}</span>}
+          <p className="order-table-number">Table {order.tableNumber}</p>
+          <p className="order-customer">{order.customerName}</p>
+        </div>
+        <span className={`status-pill status-${order.status}`}>{statusLabels[order.status]}</span>
+      </header>
+      <ul className="order-lines">{order.lines.map((line) => <li key={`${order._id}-${line.itemId}`}><strong>{line.quantity}×</strong> {line.nameSnapshot} <span className="muted">· KES {(line.priceKesSnapshot * line.quantity).toLocaleString()}</span></li>)}</ul>
+      <footer className="order-card-foot">
+        <div>
+          <p className="order-total">KES {order.totalKes.toLocaleString()}</p>
+          <p className={`fine-print ${Math.floor((now - order.placedAt) / 60_000) > 15 ? 'elapsed-late' : 'muted'}`}>{elapsedLabel(order.placedAt, now)}{order.customerPhone ? ' · ' : ''}{order.customerPhone && <a href={`tel:${order.customerPhone}`}>Call</a>}</p>
+        </div>
+        <div className="order-actions">
+          {action && <Button size="small" onClick={() => move(order, action.status)}>{action.label}</Button>}
+          <Button size="small" variant="secondary" icon={false} onClick={() => { void summary(order) }}>Summary</Button>
+          <Button size="small" variant="secondary" icon={false} onClick={() => setTimelineId(order._id)}>Timeline</Button>
+          {!['served', 'closed'].includes(order.status) && <Button size="small" variant="outline" onClick={() => setCancelOrder(order)}>Cancel</Button>}
+        </div>
+      </footer>
+      {renderSettlement(order)}
+    </article>
+  }
+
+  return <DashboardShell role="counter" section="Live queue" actions={<>
+    <div className="window-selector">
+      <div className="window-tabs" role="tablist" aria-label="Date window">
+        {dateWindowOptions.map((option) => <button key={option.key} type="button" role="tab" aria-selected={dateWindow === option.key} className={dateWindow === option.key ? 'window-tab window-tab-active' : 'window-tab'} onClick={() => setDateWindow(option.key)}>{option.label}</button>)}
+      </div>
+      <select className="window-select select" aria-label="Date window" value={dateWindow} onChange={(event) => setDateWindow(event.target.value as DateWindow)}>
+        {dateWindowOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+      </select>
+    </div>
+    <span className="caption">{counts.all ?? 0} open</span>
+    <Button size="small" onClick={() => setManualOpen(true)}>New order</Button>
+  </>}>
     <section className="page-section" aria-labelledby="queue-heading">
       <h1 id="queue-heading" className="sr-only">Live order queue</h1>
 
@@ -261,35 +355,13 @@ export function CounterDashboard() {
       })}</div>
 
       {visible.length === 0
-        ? <div className="empty-state"><p className="muted">{searchResults ? `No order found for “${trimmedSearch}”.` : `No ${tab === 'all' ? 'open' : statusLabels[tab as Order['status']].toLowerCase()} orders right now.`}</p></div>
-        : <div className="queue-grid">{visible.map((order) => {
-          const action = nextStatus[order.status]
-          const highlighted = Boolean(searchResults) && matchesReference(order, trimmedSearch)
-          return <article key={order._id} className={`order-card order-card-${order.status}${highlighted ? ' order-card-match' : ''}`}>
-            <header className="order-card-head">
-              <div>
-                {orderReferenceShort(order.reference) && <span className="order-reference">#{orderReferenceShort(order.reference)}</span>}
-                <p className="order-table-number">Table {order.tableNumber}</p>
-                <p className="order-customer">{order.customerName}</p>
-              </div>
-              <span className={`status-pill status-${order.status}`}>{statusLabels[order.status]}</span>
-            </header>
-            <ul className="order-lines">{order.lines.map((line) => <li key={`${order._id}-${line.itemId}`}><strong>{line.quantity}×</strong> {line.nameSnapshot} <span className="muted">· KES {(line.priceKesSnapshot * line.quantity).toLocaleString()}</span></li>)}</ul>
-            <footer className="order-card-foot">
-              <div>
-                <p className="order-total">KES {order.totalKes.toLocaleString()}</p>
-                <p className={`fine-print ${elapsedLabel(order.placedAt, now) && Math.floor((now - order.placedAt) / 60_000) > 15 ? 'elapsed-late' : 'muted'}`}>{elapsedLabel(order.placedAt, now)}{order.customerPhone ? ' · ' : ''}{order.customerPhone && <a href={`tel:${order.customerPhone}`}>Call</a>}</p>
-              </div>
-              <div className="order-actions">
-                {action && <Button size="small" onClick={() => move(order, action.status)}>{action.label}</Button>}
-                <Button size="small" variant="secondary" icon={false} onClick={() => { void summary(order) }}>Summary</Button>
-                <Button size="small" variant="secondary" icon={false} onClick={() => setTimelineId(order._id)}>Timeline</Button>
-                {!['served', 'closed'].includes(order.status) && <Button size="small" variant="outline" onClick={() => setCancelOrder(order)}>Cancel</Button>}
-              </div>
-            </footer>
-            {renderSettlement(order)}
-          </article>
-        })}</div>}
+        ? <div className="empty-state"><p className="muted">{searchResults ? `No order found for “${trimmedSearch}”.` : `No ${tab === 'all' ? 'open' : tab === 'unpaid' ? 'unpaid' : statusLabels[tab].toLowerCase()} orders right now.`}</p></div>
+        : dateWindow === 'all' && !searchResults
+          ? groupByDay(visible, now).map((group) => <div key={group.key} className="queue-day-group">
+              <h2 className="queue-date-sep"><span>{group.label}</span><span className="queue-date-count">{group.orders.length}</span></h2>
+              <div className="queue-grid">{group.orders.map(renderCard)}</div>
+            </div>)
+          : <div className="queue-grid">{visible.map(renderCard)}</div>}
     </section>
 
     {/* §2.3 — Mark-paid method picker. The reference, table, name and total are shown, and a

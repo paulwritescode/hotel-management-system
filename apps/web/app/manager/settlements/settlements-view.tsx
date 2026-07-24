@@ -83,12 +83,13 @@ export function SettlementsView() {
   return <DashboardShell section="Settlements" actions={<WindowSelector value={window} onChange={setWindow} />}>
     <LedgerLayer title={`Settlements · ${windowLabel.toLowerCase()}`} surface="canvas">
       <SummaryFigureGrid figures={[
-        { label: 'Recorded', value: `KES ${data.summary.recordedValueKes.toLocaleString()}`, window: `${data.summary.recordedCount} settled · ${windowLabel}` },
-        { label: 'Waived', value: `KES ${data.summary.waivedValueKes.toLocaleString()}`, window: `${data.summary.waivedCount} · ${windowLabel}` },
-        { label: 'Unpaid', value: `KES ${data.summary.unpaidValueKes.toLocaleString()}`, window: `${data.summary.unpaidCount} · ${windowLabel}` },
+        { label: 'Recorded', value: `KES ${data.summary.recordedValueKes.toLocaleString()}`, window: `${data.summary.recordedCount} settled · ${windowLabel}`, tone: 'revenue' },
+        { label: 'Waived', value: `KES ${data.summary.waivedValueKes.toLocaleString()}`, window: `${data.summary.waivedCount} · ${windowLabel}`, tone: 'waived' },
+        { label: 'Unpaid', value: `KES ${data.summary.unpaidValueKes.toLocaleString()}`, window: `${data.summary.unpaidCount} · ${windowLabel}`, tone: 'unpaid' },
       ]} />
       {data.summary.byMethod.length > 0 && <ul className="method-tally">
-        {data.summary.byMethod.map((entry) => <li key={entry.method}><span>{paymentMethodLabels[entry.method as PaymentMethod]}</span><span className="method-tally-count">{entry.count}</span><span className="method-tally-value">KES {entry.valueKes.toLocaleString()}</span></li>)}
+        <li className="method-tally-head"><span>Method</span><span className="method-tally-count">Count</span><span className="method-tally-value">Value</span></li>
+        {data.summary.byMethod.map((entry) => <li key={entry.method} className={`method-row method-${entry.method}`}><span className="method-name"><span className="method-dot" aria-hidden="true" />{paymentMethodLabels[entry.method as PaymentMethod]}</span><span className="method-tally-count">{entry.count}</span><span className="method-tally-value">KES {entry.valueKes.toLocaleString()}</span></li>)}
       </ul>}
     </LedgerLayer>
 

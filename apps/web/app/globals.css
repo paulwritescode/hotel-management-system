@@ -175,20 +175,28 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 .status-pill.status-served { background: var(--hf-success-text); }
 
 /* Card background carries the quick visual identity of each queue state.
-   New = red (attention), acknowledged/preparing = white, ready = green, served = muted. */
+   New = red (attention), acknowledged/preparing = white, ready = green, served = blue. */
 .order-card-pending, .order-card-preparing { background: var(--hf-coral); border-color: transparent; color: var(--hf-on-dark); }
 .order-card-ready { background: var(--hf-success-text); border-color: transparent; color: var(--hf-on-dark); }
-.order-card-served { opacity: .55; }
-.order-card-pending .muted, .order-card-preparing .muted, .order-card-ready .muted,
-.order-card-pending .order-customer, .order-card-preparing .order-customer, .order-card-ready .order-customer,
-.order-card-pending .order-lines .muted, .order-card-preparing .order-lines .muted, .order-card-ready .order-lines .muted,
-.order-card-pending .fine-print, .order-card-preparing .fine-print, .order-card-ready .fine-print { color: rgba(255,255,255,.82) !important; }
-.order-card-pending .order-reference, .order-card-preparing .order-reference, .order-card-ready .order-reference { background: rgba(255,255,255,.22); color: var(--hf-on-dark); }
-.order-card-pending .status-pill, .order-card-preparing .status-pill, .order-card-ready .status-pill { background: rgba(255,255,255,.24); color: var(--hf-on-dark); }
-.order-card-pending .button-default, .order-card-preparing .button-default, .order-card-ready .button-default { background: var(--hf-on-dark); color: var(--hf-ink); }
-.order-card-pending .button-default:hover, .order-card-preparing .button-default:hover, .order-card-ready .button-default:hover { background: rgba(255,255,255,.88); color: var(--hf-ink); }
-.order-card-pending .button-outline, .order-card-preparing .button-outline, .order-card-ready .button-outline { background: transparent; border-color: rgba(255,255,255,.7); color: var(--hf-on-dark); }
-.order-card-pending a, .order-card-preparing a, .order-card-ready a { color: var(--hf-on-dark); text-decoration: underline; }
+.order-card-served { background: var(--hf-blue); border-color: transparent; color: var(--hf-on-dark); }
+.order-card-pending .muted, .order-card-preparing .muted, .order-card-ready .muted, .order-card-served .muted,
+.order-card-pending .order-customer, .order-card-preparing .order-customer, .order-card-ready .order-customer, .order-card-served .order-customer,
+.order-card-pending .order-lines .muted, .order-card-preparing .order-lines .muted, .order-card-ready .order-lines .muted, .order-card-served .order-lines .muted,
+.order-card-pending .fine-print, .order-card-preparing .fine-print, .order-card-ready .fine-print, .order-card-served .fine-print { color: rgba(255,255,255,.82) !important; }
+.order-card-pending .order-reference, .order-card-preparing .order-reference, .order-card-ready .order-reference, .order-card-served .order-reference { background: rgba(255,255,255,.22); color: var(--hf-on-dark); }
+.order-card-pending .status-pill, .order-card-preparing .status-pill, .order-card-ready .status-pill, .order-card-served .status-pill { background: rgba(255,255,255,.24); color: var(--hf-on-dark); }
+.order-card-pending .button-default, .order-card-preparing .button-default, .order-card-ready .button-default, .order-card-served .button-default { background: var(--hf-on-dark); color: var(--hf-ink); }
+.order-card-pending .button-default:hover, .order-card-preparing .button-default:hover, .order-card-ready .button-default:hover, .order-card-served .button-default:hover { background: rgba(255,255,255,.88); color: var(--hf-ink); }
+.order-card-pending .button-outline, .order-card-preparing .button-outline, .order-card-ready .button-outline, .order-card-served .button-outline { background: transparent; border-color: rgba(255,255,255,.7); color: var(--hf-on-dark); }
+.order-card-pending a, .order-card-preparing a, .order-card-ready a, .order-card-served a { color: var(--hf-on-dark); text-decoration: underline; }
+
+/* The settlement region and its controls must stay legible on the blue served card. */
+.order-card-served .settlement-region { border-top-color: rgba(255,255,255,.32); }
+.order-card-served .settlement-state, .order-card-served .settlement-link, .order-card-served .settlement-unpaid-linger { color: var(--hf-on-dark); }
+.order-card-served .settlement-unpaid-linger { border-left-color: var(--hf-on-dark); }
+.order-card-served .settlement-refund { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.6); color: var(--hf-on-dark); }
+.order-card-served .button-secondary { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.5); color: var(--hf-on-dark); }
+.order-card-served .button-secondary:hover { background: rgba(255,255,255,.26); color: var(--hf-on-dark); }
 .stock-grid, .inventory-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 20px; }
 .stock-card { min-height: 136px; display: flex; flex-direction: column; justify-content: space-between; }
 .stock-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -591,25 +599,26 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
    layers, no shadows anywhere. No red/amber/green — status is a text label the 3px bar only
    reinforces. Motion is limited to press-scale and a 150ms disclosure height. */
 
-.ledger-layer { padding: 80px 0; }
-.ledger-layer-canvas { background: var(--hf-canvas); }
-.ledger-layer-parchment { background: var(--hf-parchment); }
-.ledger-layer-body { padding-top: 20px; }
-.section-head { font-size: 21px; line-height: 1.3; font-weight: 600; letter-spacing: -.01em; margin: 0; }
-.ledger-empty { font-size: 17px; color: var(--hf-ink-48); margin: 0; }
+/* Inside the contained dashboard the layers read as stacked cards rather than full-bleed bands. */
+.ledger-layer { background: var(--hf-canvas); border: 1px solid var(--hf-hairline); border-radius: 16px; padding: 24px; margin-bottom: 20px; }
+.ledger-layer-body { padding-top: 16px; }
+.ledger-layer-body[hidden] { display: none; }
+/* The signals layer holds its own cards, so it drops the outer card chrome. */
+.ledger-layer:has(.signal-stack) { background: transparent; border: 0; padding: 0; }
+.section-head { font-size: 18px; line-height: 1.3; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+.ledger-empty { font-size: 15px; color: var(--hf-ink-48); margin: 0; }
 
 /* Layer 3 disclosure — full width, 44px tall, never open by default. */
 .ledger-disclosure { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: var(--hf-ink); }
 .ledger-disclosure-count { margin-left: auto; font-size: 13px; color: var(--hf-ink-48); }
 
 /* Layer 1 — summary figures, no card chrome. */
-.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; margin: 0; }
-.summary-figure { display: grid; gap: 4px; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 24px 32px; margin: 0; }
+.summary-figure { display: grid; gap: 4px; align-content: start; }
 .summary-figure dt { margin: 0; }
-.figure-value { margin: 0; font-family: var(--hf-font-display); font-size: 40px; line-height: 1.1; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.figure-value { margin: 0; font-family: var(--hf-font-display); font-size: 32px; line-height: 1.1; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .summary-figure-window { color: var(--hf-ink-48); }
-@media (max-width: 1067px) { .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 639px) { .summary-grid { grid-template-columns: 1fr; } }
+@media (max-width: 639px) { .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* Method tally under a summary. */
 .method-tally { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 8px; max-width: 420px; }
@@ -659,8 +668,9 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 }
 
 /* Signals (§5.4). All cards render identically — no colour, no severity. */
-.signal-stack { display: grid; gap: 20px; }
-.signal-card { background: var(--hf-canvas); border: 1px solid var(--hf-hairline); border-radius: 18px; padding: 24px; }
+.signal-stack { display: grid; gap: 16px; }
+.signal-stack .section-head, .signal-stack + * { margin-top: 0; }
+.signal-card { background: var(--hf-canvas); border: 1px solid var(--hf-hairline); border-radius: 16px; padding: 24px; }
 .signal-headline { font-size: 17px; font-weight: 600; margin: 0 0 8px; }
 .signal-summary { font-size: 15px; margin: 0 0 16px; }
 .signal-breakdown { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 6px; }
@@ -688,8 +698,7 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 .window-select { display: none; min-height: 44px; }
 @media (max-width: 639px) { .window-tabs { display: none; } .window-select { display: block; } }
 
-/* §7.2 — section padding tightens below 736px. */
-@media (max-width: 735px) { .ledger-layer { padding: 48px 0; } }
+@media (max-width: 735px) { .ledger-layer { padding: 20px; } }
 
 /* §10.2 — reduced motion disables the press-scale and makes disclosure instant. */
 @media (prefers-reduced-motion: reduce) {
@@ -706,3 +715,23 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
   .signal-card, .ledger-row-clickable:hover td { background: #fff !important; }
   * { color: #000 !important; }
 }
+
+/* Colour: a single coral accent, used only on the headline numbers. Everything else stays
+   monochrome — no tinted tiles, no per-card border accents, no per-method colours. */
+.metric-value { color: var(--hf-coral); }
+.figure-value { color: var(--hf-coral); }
+
+/* A served order still unpaid is money at risk — a true red card. It also carries the
+   .order-card-served class, so the on-dark text/button/settlement overrides already apply. */
+.order-card-unpaid { background: #d92d20; border-color: transparent; }
+
+/* Method tally — keep only the header row that labels the count column; values stay neutral. */
+.method-tally-head { color: var(--hf-ink-48); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.method-name { display: inline-flex; align-items: center; }
+.method-dot { display: none; }
+
+/* "All time" queue view — group orders under a date separator. */
+.queue-day-group + .queue-day-group { margin-top: 28px; }
+.queue-date-sep { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; font-size: 15px; font-weight: 600; color: var(--hf-ink-80); }
+.queue-date-sep::after { content: ''; flex: 1; height: 1px; background: var(--hf-hairline); }
+.queue-date-count { color: var(--hf-ink-48); font-size: 13px; font-weight: 600; }

@@ -50,11 +50,12 @@ export function MyShift() {
   return <DashboardShell role="counter" section="My shift">
     <LedgerLayer title="My shift" surface="canvas">
       <SummaryFigureGrid figures={[
-        { label: 'Settlements recorded', value: String(data.summary.recordedCount), window: windowLabel },
-        { label: 'Value', value: `KES ${data.summary.recordedValueKes.toLocaleString()}`, window: windowLabel },
+        { label: 'Settlements recorded', value: String(data.summary.recordedCount), window: windowLabel, tone: 'count' },
+        { label: 'Value', value: `KES ${data.summary.recordedValueKes.toLocaleString()}`, window: windowLabel, tone: 'revenue' },
       ]} />
       {data.summary.byMethod.length > 0 && <ul className="method-tally">
-        {data.summary.byMethod.map((entry) => <li key={entry.method}><span>{paymentMethodLabels[entry.method as PaymentMethod]}</span><span className="method-tally-count">{entry.count}</span><span className="method-tally-value">KES {entry.valueKes.toLocaleString()}</span></li>)}
+        <li className="method-tally-head"><span>Method</span><span className="method-tally-count">Count</span><span className="method-tally-value">Value</span></li>
+        {data.summary.byMethod.map((entry) => <li key={entry.method} className={`method-row method-${entry.method}`}><span className="method-name"><span className="method-dot" aria-hidden="true" />{paymentMethodLabels[entry.method as PaymentMethod]}</span><span className="method-tally-count">{entry.count}</span><span className="method-tally-value">KES {entry.valueKes.toLocaleString()}</span></li>)}
       </ul>}
     </LedgerLayer>
 
