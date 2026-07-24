@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { useToast } from '@/components/ui/toast'
 import { useAuthArgs, useBackendAvailable, useStaffIdentity } from '@/components/providers'
+import { OrderTimeline } from '@/components/ledger/order-timeline'
 import { api, type RestaurantSettings } from '@/lib/convex'
 import { demoItems, demoOrders } from '@/lib/demo-data'
 import { downloadOrderSummary } from '@/lib/receipt'
@@ -88,7 +89,9 @@ export function CounterDashboard() {
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   const [waiveTarget, setWaiveTarget] = useState<Order | null>(null)
   const [correctTarget, setCorrectTarget] = useState<Order | null>(null)
+  const [timelineId, setTimelineId] = useState<Order['_id'] | null>(null)
   const [selected, setSelected] = useState<Record<string, number>>({})
+  const timeline = useQuery(api.ledger.orderTimeline, backend && timelineId ? { token: auth!.token, orderId: timelineId } : 'skip')
 
   // Waive is a manager-and-owner action (§2.4); the server enforces it too. In the disconnected
   // demo there is no session, so we surface the controls for exploration.
@@ -280,6 +283,7 @@ export function CounterDashboard() {
               <div className="order-actions">
                 {action && <Button size="small" onClick={() => move(order, action.status)}>{action.label}</Button>}
                 <Button size="small" variant="secondary" icon={false} onClick={() => { void summary(order) }}>Summary</Button>
+                <Button size="small" variant="secondary" icon={false} onClick={() => setTimelineId(order._id)}>Timeline</Button>
                 {!['served', 'closed'].includes(order.status) && <Button size="small" variant="outline" onClick={() => setCancelOrder(order)}>Cancel</Button>}
               </div>
             </footer>
@@ -322,6 +326,8 @@ export function CounterDashboard() {
         <div className="form-actions"><Button type="button" variant="secondary" onClick={() => setCorrectTarget(null)}>Cancel</Button><Button type="submit">Record correction</Button></div>
       </form>}
     </Dialog>
+
+    <OrderTimeline open={Boolean(timelineId)} onClose={() => setTimelineId(null)} data={timeline ?? undefined} loading={!timeline} />
 
     <Dialog open={manualOpen} onClose={() => setManualOpen(false)} title="New counter order" description="Add a walk-up order to the same live queue"><form className="form-stack" onSubmit={submitManual}><div className="field-grid"><div className="field"><label htmlFor="manual-table">Table number</label><Input id="manual-table" name="tableNumber" type="number" min="1" max="999" required /></div><div className="field"><label htmlFor="manual-name">Customer name</label><Input id="manual-name" name="customerName" placeholder="Walk-up guest" /></div></div><div className="field"><span className="field-label">Items</span>{items.filter((item) => item.available && !item.archived).map((item) => <div className="mapping-row" key={item._id}><span>{item.name} · KES {item.priceKes.toLocaleString()}</span><Input aria-label={`${item.name} quantity`} type="number" min="0" max="99" value={selected[item._id] ?? 0} onChange={(event) => setSelected((current) => ({ ...current, [item._id]: Number(event.target.value) }))} /></div>)}</div><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setManualOpen(false)}>Keep browsing</Button><Button type="submit">Add order</Button></div></form></Dialog>
     <Dialog open={Boolean(cancelOrder)} onClose={() => setCancelOrder(null)} title="Cancel order" description="A reason and the signed-in staff member are recorded"><form className="form-stack" onSubmit={submitCancel}><div className="field"><label htmlFor="cancel-reason">Cancellation reason</label><Input id="cancel-reason" name="reason" minLength={3} required autoFocus /></div><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setCancelOrder(null)}>Keep order</Button><Button type="submit" variant="danger">Cancel order</Button></div></form></Dialog>

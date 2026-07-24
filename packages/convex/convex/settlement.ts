@@ -96,8 +96,13 @@ export const correct = mutationGeneric({
     const reason = args.reason.trim()
     if (reason.length < 3 || reason.length > 500) throw new Error('A correction reason of at least 3 characters is required')
     const fromStatus = (order.paymentStatus ?? 'unpaid') as string
-    if (args.toStatus === fromStatus) throw new Error('The settlement is already in that state')
     if (args.toStatus === 'paid' && !args.method) throw new Error('A payment method is required when correcting to paid')
+    // A correction must change something: either the status, or (for a paid order) the method —
+    // the canonical case is fixing a wrongly recorded payment method (Add. 05 §3.5).
+    const methodUnchanged = args.method === undefined || args.method === order.paymentMethod
+    if (args.toStatus === fromStatus && (args.toStatus !== 'paid' || methodUnchanged)) {
+      throw new Error('The settlement is already in that state')
+    }
 
     const now = Date.now()
     const patch: Record<string, unknown> = { paymentStatus: args.toStatus }
