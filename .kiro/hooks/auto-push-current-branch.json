@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Auto-push current branch",
+      "trigger": "Stop",
+      "description": "After each agent run, push the currently checked-out branch to origin (keeps the active branch in sync; no-ops when there's nothing new).",
+      "action": {
+        "type": "command",
+        "command": "git push origin HEAD",
+        "timeout": 60
+      }
+    }
+  ]
+}

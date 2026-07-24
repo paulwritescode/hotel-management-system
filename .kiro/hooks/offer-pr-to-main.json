@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Offer PR to main",
+      "trigger": "Stop",
+      "description": "After a run (the current branch having been pushed), offer to open a pull request to main when the branch is ahead of main and has no open PR.",
+      "action": {
+        "type": "agent",
+        "prompt": "The current branch has just been pushed to origin by the auto-push hook. Now, only if ALL of these hold: (1) the current git branch is not `main` or `master`, (2) it has commits that are not yet in `main`, and (3) there is no open pull request for it — ask the user, once, whether they would like to open a pull request to `main`. If they agree, create it with `gh pr create --base main`. If a PR already exists, the branch is `main`, or the user declines, do nothing and do not ask again this session. Keep the question to a single short sentence."
+      }
+    }
+  ]
+}
