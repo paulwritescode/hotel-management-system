@@ -11,9 +11,9 @@ export const demoItems: Item[] = [
 
 const now = Date.now()
 export const demoOrders: Order[] = [
-  { _id: 'order-1', tableNumber: 7, source: 'whatsapp', customerName: 'Amina', customerPhone: '+254700000001', lines: [{ itemId: 'item-1', nameSnapshot: 'Chicken biryani', priceKesSnapshot: 650, quantity: 2 }, { itemId: 'item-3', nameSnapshot: 'Chapati', priceKesSnapshot: 80, quantity: 2 }], totalKes: 1460, reference: 'HF-20260723-0042', status: 'pending', placedAt: now - 4 * 60_000 },
-  { _id: 'order-2', tableNumber: 3, source: 'whatsapp', customerName: 'Brian', customerPhone: '+254700000002', lines: [{ itemId: 'item-2', nameSnapshot: 'Beef stew', priceKesSnapshot: 520, quantity: 1 }, { itemId: 'item-4', nameSnapshot: 'Sukuma wiki', priceKesSnapshot: 160, quantity: 1 }], totalKes: 680, reference: 'HF-20260723-0041', status: 'preparing', placedAt: now - 18 * 60_000, acknowledgedAt: now - 16 * 60_000 },
-  { _id: 'order-3', tableNumber: 12, source: 'counter', customerName: 'Walk-up guest', lines: [{ itemId: 'item-6', nameSnapshot: 'Mandazi', priceKesSnapshot: 70, quantity: 4 }], totalKes: 280, reference: 'HF-20260723-0040', status: 'ready', placedAt: now - 9 * 60_000, acknowledgedAt: now - 8 * 60_000 },
+  { _id: 'order-1', tableNumber: 7, source: 'whatsapp', customerName: 'Amina', customerPhone: '+254700000001', lines: [{ itemId: 'item-1', nameSnapshot: 'Chicken biryani', priceKesSnapshot: 650, quantity: 2 }, { itemId: 'item-3', nameSnapshot: 'Chapati', priceKesSnapshot: 80, quantity: 2 }], totalKes: 1460, reference: 'HF-20260723-0042', status: 'pending', paymentStatus: 'unpaid', placedAt: now - 4 * 60_000 },
+  { _id: 'order-2', tableNumber: 3, source: 'whatsapp', customerName: 'Brian', customerPhone: '+254700000002', lines: [{ itemId: 'item-2', nameSnapshot: 'Beef stew', priceKesSnapshot: 520, quantity: 1 }, { itemId: 'item-4', nameSnapshot: 'Sukuma wiki', priceKesSnapshot: 160, quantity: 1 }], totalKes: 680, reference: 'HF-20260723-0041', status: 'preparing', paymentStatus: 'unpaid', placedAt: now - 18 * 60_000, acknowledgedAt: now - 16 * 60_000 },
+  { _id: 'order-3', tableNumber: 12, source: 'counter', customerName: 'Walk-up guest', lines: [{ itemId: 'item-6', nameSnapshot: 'Mandazi', priceKesSnapshot: 70, quantity: 4 }], totalKes: 280, reference: 'HF-20260723-0040', status: 'served', paymentStatus: 'unpaid', placedAt: now - 58 * 60_000, acknowledgedAt: now - 55 * 60_000, servedAt: now - 50 * 60_000 },
 ]
 
 export const demoStaff: Staff[] = [

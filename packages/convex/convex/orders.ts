@@ -94,6 +94,7 @@ export const placeFromSession = mutationGeneric({
       totalKes,
       reference,
       status: 'pending',
+      paymentStatus: 'unpaid',
       placedAt: now,
     })
     await ctx.db.patch(session._id, { activeOrderId: orderId, state: 'PLACED', cart: [], lastMessageAt: now, expiresAt: now + 30 * 60 * 1000 })
@@ -125,6 +126,7 @@ export const placeManual = mutationGeneric({
       totalKes,
       reference,
       status: 'pending',
+      paymentStatus: 'unpaid',
       placedAt: now,
     })
     await logActivity(ctx.db, staff, 'order_create', `Created order #${reference.split('-').at(-1)} for table ${args.tableNumber}`)
@@ -187,13 +189,23 @@ export const cancel = mutationGeneric({
   handler: async (ctx, args) => {
     const order = await ctx.db.get(args.orderId)
     if (!order) throw new Error('Order not found')
-    const staff = await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(order.restaurantId))
+    // Addendum 04 §1.5 — cancelling a PAID order is a refund situation and is manager-and-above,
+    // unlike cancelling an unpaid order which counter staff may do.
+    const allowedRoles = order.paymentStatus === 'paid' ? (['manager'] as const) : (['counter', 'manager'] as const)
+    const staff = await requireStaff(ctx.db, args.token, allowedRoles, String(order.restaurantId))
     if (['served', 'closed', 'cancelled'].includes(order.status)) throw new Error(`A ${order.status} order cannot be cancelled`)
     const reason = args.reason.trim()
     if (reason.length < 3 || reason.length > 500) throw new Error('Cancellation reason must be 3 to 500 characters')
     await restoreStock(ctx, order.lines)
-    await ctx.db.patch(args.orderId, { status: 'cancelled', cancellationReason: reason, cancelledByStaffId: staff._id, closedAt: Date.now() })
-    await logActivity(ctx.db, staff, 'order_cancel', `Cancelled order #${order.reference?.split('-').at(-1) ?? order.tableNumber} and returned stock`)
+    const shortRef = order.reference?.split('-').at(-1) ?? String(order.tableNumber)
+    // §1.5 — paymentStatus MUST NOT be reset; money did change hands. We record that a refund is
+    // owed. The actual refund is a physical act at the counter; the system tracks only that one is due.
+    const refund = order.paymentStatus === 'paid' ? { refundDue: true } : {}
+    await ctx.db.patch(args.orderId, { status: 'cancelled', cancellationReason: reason, cancelledByStaffId: staff._id, closedAt: Date.now(), ...refund })
+    await logActivity(ctx.db, staff, 'order_cancel', `Cancelled order #${shortRef} and returned stock`)
+    if (order.paymentStatus === 'paid') {
+      await logActivity(ctx.db, staff, 'settlement.refund_due', `Refund due on paid order #${shortRef} · KES ${order.totalKes}`)
+    }
     return args.orderId
   },
 })
@@ -254,5 +266,23 @@ export const closeStaleServed = internalMutationGeneric({
     const served = await ctx.db.query('orders').withIndex('by_restaurant_status').filter((query: any) => query.lt(query.field('servedAt'), args.olderThan)).take(Math.min(args.limit ?? 100, 500))
     for (const order of served) if (order.status === 'served') await ctx.db.patch(order._id, { status: 'closed', closedAt: Date.now() })
     return served.length
+  },
+})
+
+// Addendum 04 migration — backfill paymentStatus onto orders created before settlement tracking
+// existed. paymentStatus is stored optional so the schema can deploy onto existing rows; run this
+// once from the Convex dashboard/CLI to set every pre-existing order to 'unpaid'. Idempotent.
+export const backfillPayment = internalMutationGeneric({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const orders = await ctx.db.query('orders').take(Math.min(args.limit ?? 2000, 8000))
+    let updated = 0
+    for (const order of orders) {
+      if (order.paymentStatus === undefined) {
+        await ctx.db.patch(order._id, { paymentStatus: 'unpaid' })
+        updated += 1
+      }
+    }
+    return { scanned: orders.length, updated }
   },
 })

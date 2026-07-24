@@ -13,8 +13,11 @@ import {
   Menu,
   Package,
   QrCode,
+  ScrollText,
+  Settings,
   UtensilsCrossed,
   Users,
+  Wallet,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -26,10 +29,12 @@ type NavigationItem = { href: string; label: string; icon: LucideIcon }
 
 const managerNavigation: NavigationItem[] = [
   { href: '/manager', label: 'Analytics', icon: ChartNoAxesCombined },
+  { href: '/manager/settlements', label: 'Settlements', icon: Wallet },
   { href: '/manager/inventory', label: 'Inventory', icon: Package },
   { href: '/manager/inventory/import', label: 'Import menu', icon: FileUp },
   { href: '/manager/tables', label: 'Tables', icon: QrCode },
   { href: '/manager/staff', label: 'Staff', icon: Users },
+  { href: '/manager/settings', label: 'Settings', icon: Settings },
 ]
 
 const navigationByRole: Record<StaffRole, NavigationItem[]> = {
@@ -37,6 +42,7 @@ const navigationByRole: Record<StaffRole, NavigationItem[]> = {
   manager: managerNavigation,
   counter: [
     { href: '/counter', label: 'Live queue', icon: ClipboardList },
+    { href: '/counter/shift', label: 'My shift', icon: ScrollText },
     { href: '/counter/stock', label: 'Stock', icon: Boxes },
   ],
   waiter: [

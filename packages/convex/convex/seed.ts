@@ -163,7 +163,12 @@ export const applySeed = internalMutationGeneric({
     if (args.staff.length !== 3 || new Set(args.staff.map((entry) => entry.role)).size !== 3) throw new Error('Seed requires exactly one staff member per role')
     if ((await ctx.db.query('restaurants').take(1)).length > 0) throw new Error('Seed can run only on an empty deployment')
     const now = Date.now()
-    const restaurantId = await ctx.db.insert('restaurants', { name: args.restaurant.name, phoneMsisdn: args.restaurant.phoneMsisdn, currency: 'KES', createdAt: now })
+    const restaurantId = await ctx.db.insert('restaurants', {
+      name: args.restaurant.name, phoneMsisdn: args.restaurant.phoneMsisdn, currency: 'KES',
+      // Addendum 04 §5.4 — display-only payment configuration.
+      acceptedPaymentMethods: ['cash', 'mpesa', 'card'], mpesaTillNumber: '123456',
+      createdAt: now,
+    })
     const staffIds = new Map<string, any>()
     for (const member of args.staff) {
       const id = await ctx.db.insert('staff', { restaurantId, name: member.name, role: member.role, pinHash: member.pinHash, pinSalt: member.pinSalt, enabled: true, failedAttempts: 0, createdAt: now })
@@ -258,6 +263,13 @@ export const applyEnrichment = internalMutationGeneric({
           customerName: spec.customer, lines,
           totalKes: lines.reduce((sum, line) => sum + line.priceKesSnapshot * line.quantity, 0),
           status: spec.status, placedAt,
+          // Addendum 04 §5.1 — paymentStatus is required. Closed demo orders read as settled so the
+          // settlement summary has realistic figures; live orders remain unpaid (the common case).
+          paymentStatus: spec.status === 'closed' ? 'paid' : 'unpaid',
+        }
+        if (spec.status === 'closed') {
+          record.paymentMethod = spec.source === 'whatsapp' ? 'mpesa' : 'cash'
+          record.paidAt = placedAt + 50 * 60_000
         }
         if (spec.phone) record.customerPhone = spec.phone
         if (!['pending', 'cancelled'].includes(spec.status)) {

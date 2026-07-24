@@ -1,7 +1,77 @@
 import { makeFunctionReference } from 'convex/server'
-import type { DiningTable, Id, Item, Order, Staff } from './models'
+import type { DiningTable, Id, Item, Order, PaymentMethod, Staff } from './models'
 
 export type AuthArgs = { token: string; restaurantId: Id }
+
+export type RestaurantSettings = {
+  name: string
+  acceptedPaymentMethods: PaymentMethod[]
+  mpesaTillNumber?: string
+}
+
+export type WindowKey = 'today' | '7d' | '30d' | '90d'
+
+export type MethodBreakdown = { method: PaymentMethod; count: number; valueKes: number }
+export type UnpaidRow = { _id: Id; reference?: string; tableNumber: number; customerName: string; totalKes: number; servedAt: number }
+
+export type LedgerEntry = {
+  _id: Id
+  kind: 'paid' | 'waived' | 'correction'
+  reference?: string
+  tableNumber?: number
+  customerName?: string
+  amountKes: number
+  method?: PaymentMethod
+  reason?: string
+  at: number
+  actorName: string
+  fromLabel?: string
+  toLabel?: string
+}
+
+export type SettlementLog = {
+  window: { from: number; to: number; key: WindowKey }
+  retentionDays: number
+  summary: { recordedCount: number; recordedValueKes: number; waivedCount: number; waivedValueKes: number; unpaidCount: number; unpaidValueKes: number; byMethod: MethodBreakdown[] }
+  attention: {
+    unpaidOrders: UnpaidRow[]
+    refundsDue: Array<{ _id: Id; reference?: string; tableNumber: number; totalKes: number }>
+    waives: LedgerEntry[]
+    corrections: LedgerEntry[]
+  }
+  entries: LedgerEntry[]
+  totalEntries: number
+}
+
+export type MyShift = {
+  window: { from: number; to: number; key: WindowKey }
+  summary: { recordedCount: number; recordedValueKes: number; byMethod: MethodBreakdown[] }
+  attention: { unpaidOrders: UnpaidRow[] }
+  entries: LedgerEntry[]
+  totalEntries: number
+}
+
+export type TimelineEvent = { at: number; label: string; actor: string; exception?: boolean }
+export type OrderTimelineResult = { order: { reference?: string; tableNumber: number; customerName: string }; events: TimelineEvent[] }
+
+export type SignalBreakdown = { name: string; count: number; denominator: number }
+export type Signal = { id: string; headline: string; summary: string; breakdown: SignalBreakdown[]; benignNote: string }
+export type SignalsResult = { window: { from: number; to: number; key: WindowKey }; status: 'ok' | 'insufficient'; signals: Signal[] }
+
+export type SettlementSummary = {
+  window: { from: number; to: number }
+  ordersServed: number
+  orderedValueKes: number
+  settledRevenueKes: number
+  waivedValueKes: number
+  unpaidValueKes: number
+  paidCount: number
+  waivedCount: number
+  unpaidCount: number
+  refundsDueCount: number
+  byMethod: Array<{ method: PaymentMethod; count: number; valueKes: number }>
+  unpaidOrders: Array<{ _id: Id; reference?: string; tableNumber: number; customerName: string; totalKes: number; servedAt: number }>
+}
 type ItemInput = Omit<Item, '_id' | 'archived'>
 type StaffRole = Staff['role']
 
@@ -73,6 +143,22 @@ export const api = {
     placeManual: makeFunctionReference<'mutation', AuthArgs & { tableNumber: number; customerName: string; customerPhone?: string; lines: Array<{ itemId: Id; quantity: number }> }, { orderId: Id; totalKes: number; lines: Order['lines'] }>('orders:placeManual'),
     waiterOrders: makeFunctionReference<'query', AuthArgs, Order[]>('orders:waiterOrders'),
     waiterStats: makeFunctionReference<'query', AuthArgs, { ordersServedToday: number; medianAcknowledgedToServedMs: number | null }>('orders:waiterStats'),
+  },
+  settlement: {
+    markPaid: makeFunctionReference<'mutation', { token: string; orderId: Id; method: PaymentMethod }, Id>('settlement:markPaid'),
+    waive: makeFunctionReference<'mutation', { token: string; orderId: Id; reason: string }, Id>('settlement:waive'),
+    correct: makeFunctionReference<'mutation', { token: string; orderId: Id; toStatus: Order['paymentStatus']; method?: PaymentMethod | undefined; reason: string }, Id>('settlement:correct'),
+    summary: makeFunctionReference<'query', AuthArgs, SettlementSummary>('settlement:summary'),
+  },
+  restaurants: {
+    settings: makeFunctionReference<'query', AuthArgs, RestaurantSettings>('restaurants:settings'),
+    updateSettings: makeFunctionReference<'mutation', AuthArgs & { acceptedPaymentMethods: PaymentMethod[]; mpesaTillNumber?: string | undefined }, RestaurantSettings>('restaurants:updateSettings'),
+  },
+  ledger: {
+    settlementLog: makeFunctionReference<'query', AuthArgs & { window: WindowKey; staffId?: Id; method?: string; kind?: string }, SettlementLog>('ledger:settlementLog'),
+    myShift: makeFunctionReference<'query', AuthArgs, MyShift>('ledger:myShift'),
+    orderTimeline: makeFunctionReference<'query', { token: string; orderId: Id }, OrderTimelineResult>('ledger:orderTimeline'),
+    signals: makeFunctionReference<'query', AuthArgs & { window: WindowKey }, SignalsResult>('ledger:signals'),
   },
   analytics: {
     dashboard: makeFunctionReference<'query', AuthArgs, AnalyticsDashboard>('analytics:dashboard'),
