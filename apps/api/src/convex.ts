@@ -2,6 +2,7 @@ import type { ItemCategory, MarketingConsent, SessionState } from '@heavenly/typ
 import { ConvexHttpClient } from 'convex/browser'
 import { makeFunctionReference } from 'convex/server'
 import type { CartLine, ConversationSession, MenuItem } from './whatsapp/types'
+import type { OrderSummary, PaymentConfig } from './whatsapp/templates'
 
 const claimRef = makeFunctionReference<
   'mutation',
@@ -66,7 +67,7 @@ const availableItemsRef = makeFunctionReference<
 const placeOrderRef = makeFunctionReference<
   'mutation',
   { restaurantId: string; phone: string },
-  { orderId: string; totalKes: number }
+  { orderId: string; totalKes: number; reference?: string }
 >('orders:placeFromSession')
 const recommendationRef = makeFunctionReference<
   'query',
@@ -83,10 +84,63 @@ const addFeedbackCommentRef = makeFunctionReference<
   { restaurantId: string; orderId: string; phone: string; comment: string },
   null
 >('feedback:addComment')
+const pendingFeedbackPromptsRef = makeFunctionReference<
+  'query',
+  { restaurantId: string; limit?: number },
+  FeedbackPrompt[]
+>('sessions:pendingFeedbackPrompts')
+const claimFeedbackPromptRef = makeFunctionReference<
+  'mutation',
+  { restaurantId: string; phone: string; orderId: string },
+  boolean
+>('sessions:claimFeedbackPrompt')
+const confirmFeedbackPromptRef = makeFunctionReference<
+  'mutation',
+  { restaurantId: string; phone: string; orderId: string },
+  boolean
+>('sessions:confirmFeedbackPrompt')
+
+export type FeedbackPrompt = {
+  phone: string
+  orderId: string
+  /** 1-based delivery attempt this row represents, for logging. */
+  attempt: number
+}
+
+export type PendingOrderSummary = OrderSummary & {
+  orderId: string
+  phone: string
+  payment: PaymentConfig
+}
+
+const setItemWhatsappMediaRef = makeFunctionReference<
+  'mutation',
+  { restaurantId: string; itemId: string; mediaId: string },
+  boolean
+>('items:setWhatsappMedia')
+
+const pendingOrderSummariesRef = makeFunctionReference<
+  'query',
+  { restaurantId: string; limit?: number },
+  PendingOrderSummary[]
+>('orders:pendingOrderSummaries')
+const claimOrderSummaryRef = makeFunctionReference<
+  'mutation',
+  { restaurantId: string; orderId: string },
+  boolean
+>('orders:claimOrderSummary')
+const confirmOrderSummaryRef = makeFunctionReference<
+  'mutation',
+  { restaurantId: string; orderId: string },
+  boolean
+>('orders:confirmOrderSummary')
 
 type ConvexMenuItem = Omit<MenuItem, 'id' | 'recentOrderCount'> & {
   _id: string
   recentOrderCount?: number
+  imageUrl?: string | null
+  whatsappMediaId?: string
+  whatsappMediaAt?: number
 }
 
 export type RecommendationConstraints = {
@@ -115,10 +169,17 @@ export interface BotStore {
   removeFromCart(phone: string, itemId: string): Promise<void>
   cancelCart(phone: string): Promise<{ cancelled: boolean; reason?: string }>
   listAvailableItems(category?: ItemCategory): Promise<MenuItem[]>
-  placeOrder(phone: string): Promise<{ orderId: string; totalKes: number }>
+  placeOrder(phone: string): Promise<{ orderId: string; totalKes: number; reference?: string }>
   recommendations(constraints: RecommendationConstraints): Promise<MenuItem[]>
   submitFeedback(orderId: string, phone: string, rating: number): Promise<string>
   addFeedbackComment(orderId: string, phone: string, comment: string): Promise<void>
+  pendingFeedbackPrompts(limit?: number): Promise<FeedbackPrompt[]>
+  claimFeedbackPrompt(phone: string, orderId: string): Promise<boolean>
+  confirmFeedbackPrompt(phone: string, orderId: string): Promise<boolean>
+  setItemWhatsappMedia(itemId: string, mediaId: string): Promise<boolean>
+  pendingOrderSummaries(limit?: number): Promise<PendingOrderSummary[]>
+  claimOrderSummary(orderId: string): Promise<boolean>
+  confirmOrderSummary(orderId: string): Promise<boolean>
 }
 
 function mapItem(item: ConvexMenuItem): MenuItem {
@@ -133,6 +194,10 @@ function mapItem(item: ConvexMenuItem): MenuItem {
     archived: item.archived,
     ...(item.quantityOnHand !== undefined ? { quantityOnHand: item.quantityOnHand } : {}),
     ...(item.recentOrderCount !== undefined ? { recentOrderCount: item.recentOrderCount } : {}),
+    // Meta fetches header images by URL, so only absolute https links are usable.
+    ...(item.imageUrl?.startsWith('https://') ? { imageUrl: item.imageUrl } : {}),
+    ...(item.whatsappMediaId ? { whatsappMediaId: item.whatsappMediaId } : {}),
+    ...(item.whatsappMediaAt !== undefined ? { whatsappMediaAt: item.whatsappMediaAt } : {}),
   }
 }
 
@@ -212,6 +277,33 @@ export function createBotStore(convexUrl: string, restaurantId: string): BotStor
         phone,
         comment,
       })
+    },
+    async pendingFeedbackPrompts(limit) {
+      return await client.query(pendingFeedbackPromptsRef, {
+        restaurantId,
+        ...(limit !== undefined ? { limit } : {}),
+      })
+    },
+    async claimFeedbackPrompt(phone, orderId) {
+      return await client.mutation(claimFeedbackPromptRef, { restaurantId, phone, orderId })
+    },
+    async confirmFeedbackPrompt(phone, orderId) {
+      return await client.mutation(confirmFeedbackPromptRef, { restaurantId, phone, orderId })
+    },
+    async setItemWhatsappMedia(itemId, mediaId) {
+      return await client.mutation(setItemWhatsappMediaRef, { restaurantId, itemId, mediaId })
+    },
+    async pendingOrderSummaries(limit) {
+      return await client.query(pendingOrderSummariesRef, {
+        restaurantId,
+        ...(limit !== undefined ? { limit } : {}),
+      })
+    },
+    async claimOrderSummary(orderId) {
+      return await client.mutation(claimOrderSummaryRef, { restaurantId, orderId })
+    },
+    async confirmOrderSummary(orderId) {
+      return await client.mutation(confirmOrderSummaryRef, { restaurantId, orderId })
     },
   }
 }

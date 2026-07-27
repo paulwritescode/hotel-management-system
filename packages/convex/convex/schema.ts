@@ -32,6 +32,11 @@ export default defineSchema({
     unit: v.optional(v.string()),
     imageStorageId: v.optional(v.id('_storage')),
     externalImageUrl: v.optional(v.string()),
+    // Meta media id for this dish's photo, cached after the first upload. Sending an image header
+    // by id skips the ~1s Meta spends re-fetching the source URL on every send. Meta deletes media
+    // after 30 days, so this is re-uploaded once it goes stale (see WHATSAPP_MEDIA_TTL_MS).
+    whatsappMediaId: v.optional(v.string()),
+    whatsappMediaAt: v.optional(v.number()),
     imageAlt: v.optional(v.string()),
     imageCredit: v.optional(v.string()),
     imageCreditUrl: v.optional(v.string()),
@@ -116,6 +121,11 @@ export default defineSchema({
     acknowledgedAt: v.optional(v.number()),
     servedAt: v.optional(v.number()),
     closedAt: v.optional(v.number()),
+    // WhatsApp order-summary delivery, mirroring the session feedback-prompt fields. Sent once the
+    // counter has verified the order; `summarySentAt` is set only after the Graph API call succeeds.
+    summarySentAt: v.optional(v.number()),
+    summaryAttempts: v.optional(v.number()),
+    summaryLastAttemptAt: v.optional(v.number()),
   })
     .index('by_restaurant_status', ['restaurantId', 'status'])
     .index('by_restaurant_placedAt', ['restaurantId', 'placedAt'])
@@ -201,7 +211,16 @@ export default defineSchema({
     ),
     lastMessageAt: v.number(),
     expiresAt: v.number(),
-  }).index('by_phone', ['phone']),
+    // Rating-prompt delivery for activeOrderId. `feedbackPromptedAt` is set only once the Graph API
+    // call has actually succeeded; the attempt fields let a failed send retry a bounded number of
+    // times instead of being lost. All three are cleared when a session enters AWAITING_FEEDBACK so
+    // a repeat diner is prompted again for their next order.
+    feedbackPromptedAt: v.optional(v.number()),
+    feedbackPromptAttempts: v.optional(v.number()),
+    feedbackPromptLastAttemptAt: v.optional(v.number()),
+  })
+    .index('by_phone', ['phone'])
+    .index('by_state', ['state']),
 
   processedMessages: defineTable({
     wamid: v.string(),

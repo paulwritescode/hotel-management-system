@@ -1,8 +1,16 @@
 import type { ItemCategory } from '@heavenly/types'
-import type { InteractiveListMessage, MenuItem } from './types'
+import type { InteractiveButtonMessage, InteractiveListMessage, MenuItem } from './types'
 
 export const MAX_BODY_LENGTH = 1024
 const MAX_ROWS = 10
+const MAX_BUTTONS = 3
+const MAX_BUTTON_TITLE = 20
+const MAX_FOOTER = 60
+
+const CART_ACTION_BUTTONS = [
+  { id: 'cart:confirm', title: 'Confirm order' },
+  { id: 'cart:more', title: 'Add another dish' },
+]
 const CATEGORIES: ItemCategory[] = [
   'staple',
   'vegetable',
@@ -108,23 +116,239 @@ export function buildRatingList(to: string, orderId: string): InteractiveListMes
   )
 }
 
+export function cartTotal(
+  items: MenuItem[],
+  cart: Array<{ itemId: string; quantity: number }>,
+): number {
+  const byId = new Map(items.map((item) => [item.id, item]))
+  return cart.reduce((sum, line) => {
+    const item = byId.get(line.itemId)
+    return sum + (item ? item.priceKes * line.quantity : 0)
+  }, 0)
+}
+
+/**
+ * WhatsApp renders *single asterisks* as bold — not markdown's double asterisk. Blank lines between
+ * blocks are what give the bubble its structure, so the spacing here is load-bearing.
+ */
 export function formatCart(items: MenuItem[], cart: Array<{ itemId: string; quantity: number }>): string {
   const byId = new Map(items.map((item) => [item.id, item]))
   const lines = cart.map((line, index) => {
     const item = byId.get(line.itemId)
-    return item
-      ? `${index + 1}. ${line.quantity} × ${item.name} — KES ${item.priceKes * line.quantity}`
-      : `${index + 1}. Unavailable item × ${line.quantity}`
+    if (!item) return `${index + 1}. Unavailable item × ${line.quantity}`
+    return `${index + 1}. ${line.quantity} × ${item.name}\n    KES ${formatKes(item.priceKes * line.quantity)}`
   })
-  const total = cart.reduce((sum, line) => {
-    const item = byId.get(line.itemId)
-    return sum + (item ? item.priceKes * line.quantity : 0)
-  }, 0)
   return [
-    `Your cart`,
-    ...lines,
-    `Available-item subtotal: KES ${total}`,
-    'Reply confirm to continue, more to browse, or remove 2 to remove a line.',
+    '*Your cart*',
+    '',
+    lines.join('\n'),
+    '',
+    `*Subtotal:* KES ${formatKes(cartTotal(items, cart))}`,
+  ].join('\n')
+}
+
+export function formatKes(amount: number): string {
+  return amount.toLocaleString('en-KE')
+}
+
+export type ImageHeader = { id: string } | { link: string }
+
+function buttonMessage(
+  to: string,
+  body: string,
+  buttons: Array<{ id: string; title: string }>,
+  options: { image?: ImageHeader; footer?: string } = {},
+): InteractiveButtonMessage {
+  if (body.length > MAX_BODY_LENGTH) throw new Error('Interactive body exceeds 1024 characters')
+  if (buttons.length > MAX_BUTTONS) throw new Error('Interactive message exceeds 3 reply buttons')
+  const overlong = buttons.find((button) => button.title.length > MAX_BUTTON_TITLE)
+  if (overlong) throw new Error(`Reply button title exceeds ${MAX_BUTTON_TITLE} characters`)
+  return {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      ...(options.image ? { header: { type: 'image' as const, image: options.image } } : {}),
+      body: { text: body },
+      ...(options.footer ? { footer: { text: clip(options.footer, MAX_FOOTER) } } : {}),
+      action: {
+        buttons: buttons.map((button) => ({ type: 'reply' as const, reply: button })),
+      },
+    },
+  }
+}
+
+/**
+ * Confirmation of an added item: the dish photo as the header, the cart as the caption, and the
+ * next two actions as buttons so the diner never has to type `confirm`. Falls back to a
+ * header-less button message when the item has no photo.
+ */
+export function buildItemAddedMessage(
+  to: string,
+  added: { item: MenuItem; quantity: number },
+  items: MenuItem[],
+  cart: Array<{ itemId: string; quantity: number }>,
+  image?: ImageHeader,
+): InteractiveButtonMessage {
+  const lead = `*${added.quantity} × ${added.item.name}* added to your order.`
+  const withDescription = [
+    lead,
+    ...(added.item.description ? ['', `_${clip(added.item.description, 160)}_`] : []),
+    '',
+    formatCart(items, cart),
+  ].join('\n')
+  // A long cart can outgrow the 1024-character body. Drop the dish description first, then clip —
+  // throwing here would cost the diner the whole message, buttons included.
+  const body =
+    withDescription.length <= MAX_BODY_LENGTH
+      ? withDescription
+      : clip([lead, '', formatCart(items, cart)].join('\n'), MAX_BODY_LENGTH)
+  return buttonMessage(to, body, CART_ACTION_BUTTONS, {
+    ...(image ? { image } : {}),
+    footer: 'Add as many dishes as you like — they arrive as one order.',
+  })
+}
+
+/** Same two actions without a dish header, for `cart` and after removing a line. */
+export function buildCartActions(
+  to: string,
+  items: MenuItem[],
+  cart: Array<{ itemId: string; quantity: number }>,
+): InteractiveButtonMessage {
+  return buttonMessage(to, formatCart(items, cart), CART_ACTION_BUTTONS, {
+    footer: 'Add as many dishes as you like — they arrive as one order.',
+  })
+}
+
+export function buildConsentButtons(to: string): InteractiveButtonMessage {
+  return buttonMessage(
+    to,
+    [
+      '*One last thing*',
+      '',
+      'Would you like occasional offers from Heavenly Foods?',
+      '',
+      '_Your answer will not affect this order._',
+    ].join('\n'),
+    [
+      { id: 'consent:granted', title: 'Yes, send offers' },
+      { id: 'consent:denied', title: 'No thanks' },
+    ],
+  )
+}
+
+export function formatOrderPlaced(
+  tableNumber: number | undefined,
+  totalKes: number,
+  reference?: string,
+): string {
+  const shortRef = reference?.split('-').at(-1)
+  return [
+    '*Order received* ✅',
+    '',
+    ...(shortRef ? [`*Order no:*  #${shortRef}`] : []),
+    `*Table:*  ${tableNumber ?? '—'}`,
+    `*Total:*  KES ${formatKes(totalKes)}`,
+    '',
+    'The counter is verifying your order now. We will send your order summary as soon as it is confirmed.',
+  ].join('\n')
+}
+
+export type OrderSummary = {
+  reference?: string
+  tableNumber: number
+  customerName: string
+  totalKes: number
+  placedAt: number
+  lines: Array<{ nameSnapshot: string; quantity: number; priceKesSnapshot: number }>
+}
+
+export type PaymentConfig = {
+  acceptedPaymentMethods?: Array<'cash' | 'mpesa' | 'card' | 'other'>
+  mpesaTillNumber?: string
+}
+
+const PAYMENT_METHOD_ORDER: Array<'cash' | 'mpesa' | 'card' | 'other'> = [
+  'cash',
+  'mpesa',
+  'card',
+  'other',
+]
+const PAYMENT_METHOD_LABELS: Record<'cash' | 'mpesa' | 'card' | 'other', string> = {
+  cash: 'Cash',
+  mpesa: 'M-Pesa',
+  card: 'Card',
+  other: 'Other',
+}
+
+function nairobiTimestamp(at: number): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Nairobi',
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(at))
+}
+
+/**
+ * The WhatsApp counterpart of the printed order summary in apps/web/lib/receipt.ts. Per Addendum 04
+ * §3 this is an *order summary*, never a payment receipt: it tells the diner how to pay and MUST
+ * NOT state or imply that payment has happened. The bilingual disclaimer is mandatory, and the
+ * order reference is the anchor because it is what the diner reads aloud at the counter.
+ */
+export function formatOrderSummary(order: OrderSummary, payment?: PaymentConfig): string {
+  const shortRef = order.reference?.split('-').at(-1)
+  const accepted = PAYMENT_METHOD_ORDER.filter((method) =>
+    (payment?.acceptedPaymentMethods ?? []).includes(method),
+  )
+  const methodLines = accepted.map((method) =>
+    method === 'mpesa' && payment?.mpesaTillNumber
+      ? `• M-Pesa Till ${payment.mpesaTillNumber}`
+      : `• ${PAYMENT_METHOD_LABELS[method]}`,
+  )
+  return [
+    '*HEAVENLY FOODS*',
+    '*Order Summary*',
+    '',
+    ...(shortRef ? [`*ORDER REFERENCE*`, `*#${shortRef}*`, ''] : []),
+    `*Table:*  ${order.tableNumber}`,
+    `*Name:*  ${order.customerName}`,
+    `*Placed:*  ${nairobiTimestamp(order.placedAt)} EAT`,
+    '',
+    '━━━━━━━━━━━━━━━━',
+    '',
+    ...order.lines.map(
+      (line) =>
+        `${line.quantity} × ${line.nameSnapshot}\n    KES ${formatKes(line.priceKesSnapshot * line.quantity)}`,
+    ),
+    '',
+    '━━━━━━━━━━━━━━━━',
+    '',
+    `*TOTAL:  KES ${formatKes(order.totalKes)}*`,
+    '',
+    ...(methodLines.length > 0
+      ? ['*HOW TO PAY*', 'Please pay at the counter and show this summary.', '', 'We accept:', ...methodLines, '']
+      : ['*HOW TO PAY*', 'Please pay at the counter and show this summary.', '']),
+    '_This is an order summary, not a payment receipt._',
+    '_Please settle at the counter._',
+    '',
+    '_Hii ni muhtasari wa oda, si risiti ya malipo._',
+    '_Tafadhali lipa kwenye kaunta._',
+  ].join('\n')
+}
+
+export function formatOrderConfirmed(reference?: string): string {
+  const shortRef = reference?.split('-').at(-1)
+  return [
+    `*Your order${shortRef ? ` #${shortRef}` : ''} is confirmed* 👨‍🍳`,
+    '',
+    'The kitchen is preparing it now and it will be brought to your table shortly.',
+    '',
+    'To pay, head over to the counter and show the order summary below.',
   ].join('\n')
 }
 

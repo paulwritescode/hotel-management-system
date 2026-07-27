@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { assertOrderTransition, computeOrderTotal } from '../convex/_domain'
+import { assertOrderTransition, computeOrderTotal, shouldRestartSession } from '../convex/_domain'
+
+describe('shouldRestartSession', () => {
+  const now = 1_000_000
+
+  it('restarts a CLOSED session even though it has not expired', () => {
+    // The regression this guards: every inbound message pushes expiresAt forward, so a CLOSED
+    // session never ages out and the diner can never place a second order.
+    expect(shouldRestartSession('CLOSED', now + 60_000, now)).toBe(true)
+  })
+
+  it('restarts any expired session', () => {
+    expect(shouldRestartSession('BROWSING', now - 1, now)).toBe(true)
+  })
+
+  it('leaves a live conversation alone', () => {
+    for (const state of ['GREETED', 'BROWSING', 'CATEGORY', 'CART', 'PLACED', 'AWAITING_FEEDBACK']) {
+      expect(shouldRestartSession(state, now + 60_000, now)).toBe(false)
+    }
+  })
+})
 
 const statuses = ['pending', 'acknowledged', 'preparing', 'ready', 'served', 'closed', 'cancelled'] as const
 const allowed = new Set([

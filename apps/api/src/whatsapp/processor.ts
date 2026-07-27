@@ -6,12 +6,23 @@ import { createWhatsAppClient, type WhatsAppSender } from './client'
 import { parseGlobalCommand } from './machine'
 import { parseWhatsAppPayload } from './payload'
 import {
+  buildCartActions,
   buildCategoryList,
+  buildConsentButtons,
+  buildItemAddedMessage,
   buildMenuLists,
   buildRatingList,
   categoryFromNumber,
-  formatCart,
+  formatOrderConfirmed,
+  formatOrderPlaced,
+  type ImageHeader,
 } from './templates'
+import {
+  buildOrderSummaryPdf,
+  orderSummaryFilename,
+  type ReceiptPaymentConfig,
+} from '@heavenly/receipt'
+import type { PaymentConfig } from './templates'
 import type { ConversationSession, InboundMessage, MenuItem } from './types'
 
 const SESSION_TTL_MS = 30 * 60 * 1000
@@ -95,6 +106,53 @@ function requestedItem(
   return { item, quantity }
 }
 
+/** Meta deletes uploaded media after 30 days; refresh comfortably before that. */
+const WHATSAPP_MEDIA_TTL_MS = 25 * 24 * 60 * 60 * 1000
+
+/**
+ * Resolves the image header for a dish.
+ *
+ * Sending by `link` makes Meta re-fetch the source on every single send — around a second for the
+ * seeded photos — which the diner feels as a pause after choosing an item. So the photo is uploaded
+ * to Meta once and referenced by media id thereafter; only the first order of each dish pays.
+ *
+ * Returns undefined when the dish has no photo, or when anything about fetching or uploading it
+ * fails. The caller then sends the same message without a header: a dish with a broken image still
+ * gets its cart and buttons through, which matters far more than the picture.
+ */
+async function resolveImageHeader(
+  item: MenuItem,
+  store: BotStore,
+  sender: WhatsAppSender,
+): Promise<ImageHeader | undefined> {
+  if (!item.imageUrl) return undefined
+
+  const cachedAt = item.whatsappMediaAt ?? 0
+  if (item.whatsappMediaId && Date.now() - cachedAt < WHATSAPP_MEDIA_TTL_MS) {
+    return { id: item.whatsappMediaId }
+  }
+
+  try {
+    const response = await fetch(item.imageUrl)
+    if (!response.ok) throw new Error(`image fetch failed with status ${response.status}`)
+    const contentType = response.headers.get('content-type') ?? 'image/jpeg'
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    const mediaId = await sender.uploadMedia(bytes, `${item.id}.jpg`, contentType)
+    // Best-effort cache: a failure here only costs the next diner a re-upload.
+    await store.setItemWhatsappMedia(item.id, mediaId).catch(() => undefined)
+    return { id: mediaId }
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'item_image_upload_failed',
+        itemId: item.id,
+        error: error instanceof Error ? error.message : 'unknown error',
+      }),
+    )
+    return undefined
+  }
+}
+
 async function renderMenu(
   phone: string,
   store: BotStore,
@@ -127,7 +185,7 @@ async function showCart(
     return
   }
   const items = await store.listAvailableItems()
-  await sender.sendText(session.phone, formatCart(items, session.cart))
+  await sender.send(buildCartActions(session.phone, items, session.cart))
 }
 
 async function freshSession(store: BotStore, phone: string): Promise<ConversationSession> {
@@ -145,7 +203,7 @@ async function placeOrder(
     const result = await store.placeOrder(session.phone)
     await sender.sendText(
       session.phone,
-      `Order received for table ${session.tableNumber}. Total: KES ${result.totalKes}. The counter will verify it shortly.`,
+      formatOrderPlaced(session.tableNumber, result.totalKes, result.reference),
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Order placement failed'
@@ -337,6 +395,34 @@ async function handleMessage(
     return
   }
 
+  // A diner re-scanning the table QR resends "Table N" mid-conversation. Handle it wherever the
+  // table still makes sense rather than falling through to "I did not understand that" — the QR is
+  // the entry point, so scanning it twice is the single most likely thing a diner does.
+  const rescannedTable = parseTableNumber(message.text)
+  if (
+    rescannedTable !== undefined &&
+    (session.state === 'BROWSING' || session.state === 'CATEGORY' || session.state === 'CART')
+  ) {
+    if (rescannedTable === session.tableNumber) {
+      await sender.sendText(phone, `You are still ordering for table ${rescannedTable}.`)
+      if (session.cart.length > 0) {
+        await showCart(session, store, sender)
+      } else {
+        await renderMenu(phone, store, sender)
+      }
+      return
+    }
+    await store.bindTable(phone, rescannedTable)
+    await sender.sendText(phone, `Moved to table ${rescannedTable}. Your cart is unchanged.`)
+    session = await freshSession(store, phone)
+    if (session.cart.length > 0) {
+      await showCart(session, store, sender)
+    } else {
+      await renderMenu(phone, store, sender)
+    }
+    return
+  }
+
   const recommendation = recommendationRequest(message.text)
   if (recommendation) {
     const candidates = (await store.recommendations(recommendation)).slice(0, 3)
@@ -363,30 +449,39 @@ async function handleMessage(
     const selected = requestedItem(message, allItems)
     if (selected) {
       await store.addToCart(phone, selected.item.id, selected.quantity)
-      await sender.sendText(phone, `${selected.quantity} × ${selected.item.name} added.`)
-      session = await freshSession(store, phone)
-      await showCart(session, store, sender)
+      const [refreshed, image] = await Promise.all([
+        freshSession(store, phone),
+        resolveImageHeader(selected.item, store, sender),
+      ])
+      session = refreshed
+      await sender.send(buildItemAddedMessage(phone, selected, allItems, session.cart, image))
       return
     }
   }
 
   if (session.state === 'CART') {
     const normalized = message.text.trim().toLowerCase()
-    if (normalized === 'more' || normalized === 'add more') {
+    // Button taps arrive as selectionId; the typed words stay supported so the flow still works
+    // for anyone replying by text.
+    const tapped = message.selectionId
+    if (tapped === 'cart:more' || normalized === 'more' || normalized === 'add more') {
       await store.transition(phone, 'BROWSING')
       await renderMenu(phone, store, sender)
-    } else if (normalized === 'confirm' || normalized === 'checkout') {
+    } else if (tapped === 'cart:confirm' || normalized === 'confirm' || normalized === 'checkout') {
       if (session.cart.length === 0) {
         await store.cancelCart(phone)
         await sender.sendText(phone, 'Your cart is empty. Type menu to add an item first.')
         return
       }
       await store.transition(phone, 'AWAITING_NAME')
-      await sender.sendText(phone, 'What name should we put on the order?')
+      await sender.sendText(
+        phone,
+        ['*Almost there*', '', 'What name should we put on the order?'].join('\n'),
+      )
     } else {
       await sender.sendText(
         phone,
-        'Reply confirm to place this cart, more to browse, remove 2 to remove a line, or cancel to clear it.',
+        'Tap *Confirm order* to place this cart or *Add another dish* to keep browsing. You can also reply remove 2 to drop a line, or cancel to clear it.',
       )
     }
     return
@@ -401,10 +496,7 @@ async function handleMessage(
     await store.setCustomerName(phone, name)
     session = await freshSession(store, phone)
     if (session.marketingConsent === 'unasked') {
-      await sender.sendText(
-        phone,
-        'Would you like occasional offers? Reply yes or no. Your answer will not affect this order.',
-      )
+      await sender.send(buildConsentButtons(phone))
     } else {
       await placeOrder(session, dependencies)
     }
@@ -413,11 +505,13 @@ async function handleMessage(
 
   if (session.state === 'AWAITING_CONSENT') {
     const normalized = message.text.trim().toLowerCase()
-    const consent: Exclude<MarketingConsent, 'unasked'> | undefined = /^(yes|y|offers on)$/.test(normalized)
-      ? 'granted'
-      : /^(no|n|offers off)$/.test(normalized)
-        ? 'denied'
-        : undefined
+    const tapped = message.selectionId
+    const consent: Exclude<MarketingConsent, 'unasked'> | undefined =
+      tapped === 'consent:granted' || /^(yes|y|offers on)$/.test(normalized)
+        ? 'granted'
+        : tapped === 'consent:denied' || /^(no|n|offers off)$/.test(normalized)
+          ? 'denied'
+          : undefined
     if (consent) await store.setConsent(phone, consent)
     session = await freshSession(store, phone)
     await placeOrder(session, dependencies)
@@ -468,6 +562,141 @@ export async function sendServedFeedbackPrompt(
   sender: WhatsAppSender = createWhatsAppClient(env),
 ): Promise<void> {
   await sender.send(buildRatingList(phone, orderId))
+}
+
+export type FeedbackDispatchDependencies = {
+  store: Pick<
+    BotStore,
+    'pendingFeedbackPrompts' | 'claimFeedbackPrompt' | 'confirmFeedbackPrompt'
+  >
+  sender: WhatsAppSender
+}
+
+const FEEDBACK_BATCH_LIMIT = 50
+
+/**
+ * Drains sessions that Convex has moved to AWAITING_FEEDBACK but which have not yet been sent a
+ * rating prompt. Invoked from the Worker's scheduled handler.
+ *
+ * Delivery is claim → send → confirm. The claim spends one of a bounded number of attempts before
+ * the Graph API is called, so a transient failure is retried on a later run while a persistent one
+ * gives up instead of re-prompting the diner every minute. A send that succeeds but whose confirm
+ * fails is the one case that can duplicate a prompt, and the attempt cap bounds that too.
+ */
+export async function dispatchFeedbackPrompts(
+  env: RuntimeEnv,
+  dependencies?: FeedbackDispatchDependencies,
+): Promise<number> {
+  const { store, sender } = dependencies ?? {
+    store: createBotStore(env.convexUrl, env.restaurantId),
+    sender: createWhatsAppClient(env),
+  }
+
+  let pending: Awaited<ReturnType<BotStore['pendingFeedbackPrompts']>>
+  try {
+    pending = await store.pendingFeedbackPrompts(FEEDBACK_BATCH_LIMIT)
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'feedback_prompt_query_failed',
+        error: error instanceof Error ? error.message : 'unknown error',
+      }),
+    )
+    return 0
+  }
+
+  let sent = 0
+  for (const { phone, orderId, attempt } of pending) {
+    try {
+      if (!(await store.claimFeedbackPrompt(phone, orderId))) continue
+      await sender.send(buildRatingList(phone, orderId))
+      await store.confirmFeedbackPrompt(phone, orderId)
+      sent += 1
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: 'feedback_prompt_failed',
+          orderId,
+          attempt,
+          error: error instanceof Error ? error.message : 'unknown error',
+        }),
+      )
+    }
+  }
+  return sent
+}
+
+/** The shared PDF builder requires the method list; Convex omits it when nothing is configured. */
+function toReceiptPaymentConfig(payment?: PaymentConfig): ReceiptPaymentConfig {
+  return {
+    acceptedPaymentMethods: payment?.acceptedPaymentMethods ?? [],
+    ...(payment?.mpesaTillNumber ? { mpesaTillNumber: payment.mpesaTillNumber } : {}),
+  }
+}
+
+export type SummaryDispatchDependencies = {
+  store: Pick<BotStore, 'pendingOrderSummaries' | 'claimOrderSummary' | 'confirmOrderSummary'>
+  sender: WhatsAppSender
+}
+
+/**
+ * Sends the order summary once the counter has verified an order. Same claim → send → confirm
+ * contract as the feedback prompt.
+ *
+ * Two messages go out: a short confirmation, then the summary itself as its own bubble so the
+ * diner can hold up one clean message at the counter.
+ */
+export async function dispatchOrderSummaries(
+  env: RuntimeEnv,
+  dependencies?: SummaryDispatchDependencies,
+): Promise<number> {
+  const { store, sender } = dependencies ?? {
+    store: createBotStore(env.convexUrl, env.restaurantId),
+    sender: createWhatsAppClient(env),
+  }
+
+  let pending: Awaited<ReturnType<BotStore['pendingOrderSummaries']>>
+  try {
+    pending = await store.pendingOrderSummaries(FEEDBACK_BATCH_LIMIT)
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'order_summary_query_failed',
+        error: error instanceof Error ? error.message : 'unknown error',
+      }),
+    )
+    return 0
+  }
+
+  let sent = 0
+  for (const order of pending) {
+    try {
+      if (!(await store.claimOrderSummary(order.orderId))) continue
+      const pdf = await buildOrderSummaryPdf(order, toReceiptPaymentConfig(order.payment))
+      const mediaId = await sender.uploadMedia(pdf, orderSummaryFilename(order), 'application/pdf')
+      await sender.send({
+        messaging_product: 'whatsapp',
+        to: order.phone,
+        type: 'document',
+        document: {
+          id: mediaId,
+          filename: orderSummaryFilename(order),
+          caption: formatOrderConfirmed(order.reference),
+        },
+      })
+      await store.confirmOrderSummary(order.orderId)
+      sent += 1
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: 'order_summary_failed',
+          orderId: order.orderId,
+          error: error instanceof Error ? error.message : 'unknown error',
+        }),
+      )
+    }
+  }
+  return sent
 }
 
 export const CONVERSATION_TTL_MS = SESSION_TTL_MS
