@@ -15,6 +15,7 @@ import {
   categoryFromNumber,
   formatOrderConfirmed,
   formatOrderPlaced,
+  type ImageHeader,
 } from './templates'
 import {
   buildOrderSummaryPdf,
@@ -103,6 +104,53 @@ function requestedItem(
   const quantity = match[2] ? Number(match[2]) : 1
   if (!item || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 99) return undefined
   return { item, quantity }
+}
+
+/** Meta deletes uploaded media after 30 days; refresh comfortably before that. */
+const WHATSAPP_MEDIA_TTL_MS = 25 * 24 * 60 * 60 * 1000
+
+/**
+ * Resolves the image header for a dish.
+ *
+ * Sending by `link` makes Meta re-fetch the source on every single send — around a second for the
+ * seeded photos — which the diner feels as a pause after choosing an item. So the photo is uploaded
+ * to Meta once and referenced by media id thereafter; only the first order of each dish pays.
+ *
+ * Returns undefined when the dish has no photo, or when anything about fetching or uploading it
+ * fails. The caller then sends the same message without a header: a dish with a broken image still
+ * gets its cart and buttons through, which matters far more than the picture.
+ */
+async function resolveImageHeader(
+  item: MenuItem,
+  store: BotStore,
+  sender: WhatsAppSender,
+): Promise<ImageHeader | undefined> {
+  if (!item.imageUrl) return undefined
+
+  const cachedAt = item.whatsappMediaAt ?? 0
+  if (item.whatsappMediaId && Date.now() - cachedAt < WHATSAPP_MEDIA_TTL_MS) {
+    return { id: item.whatsappMediaId }
+  }
+
+  try {
+    const response = await fetch(item.imageUrl)
+    if (!response.ok) throw new Error(`image fetch failed with status ${response.status}`)
+    const contentType = response.headers.get('content-type') ?? 'image/jpeg'
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    const mediaId = await sender.uploadMedia(bytes, `${item.id}.jpg`, contentType)
+    // Best-effort cache: a failure here only costs the next diner a re-upload.
+    await store.setItemWhatsappMedia(item.id, mediaId).catch(() => undefined)
+    return { id: mediaId }
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'item_image_upload_failed',
+        itemId: item.id,
+        error: error instanceof Error ? error.message : 'unknown error',
+      }),
+    )
+    return undefined
+  }
 }
 
 async function renderMenu(
@@ -401,8 +449,12 @@ async function handleMessage(
     const selected = requestedItem(message, allItems)
     if (selected) {
       await store.addToCart(phone, selected.item.id, selected.quantity)
-      session = await freshSession(store, phone)
-      await sender.send(buildItemAddedMessage(phone, selected, allItems, session.cart))
+      const [refreshed, image] = await Promise.all([
+        freshSession(store, phone),
+        resolveImageHeader(selected.item, store, sender),
+      ])
+      session = refreshed
+      await sender.send(buildItemAddedMessage(phone, selected, allItems, session.cart, image))
       return
     }
   }

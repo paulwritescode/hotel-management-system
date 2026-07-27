@@ -113,6 +113,12 @@ export type PendingOrderSummary = OrderSummary & {
   payment: PaymentConfig
 }
 
+const setItemWhatsappMediaRef = makeFunctionReference<
+  'mutation',
+  { restaurantId: string; itemId: string; mediaId: string },
+  boolean
+>('items:setWhatsappMedia')
+
 const pendingOrderSummariesRef = makeFunctionReference<
   'query',
   { restaurantId: string; limit?: number },
@@ -133,6 +139,8 @@ type ConvexMenuItem = Omit<MenuItem, 'id' | 'recentOrderCount'> & {
   _id: string
   recentOrderCount?: number
   imageUrl?: string | null
+  whatsappMediaId?: string
+  whatsappMediaAt?: number
 }
 
 export type RecommendationConstraints = {
@@ -168,6 +176,7 @@ export interface BotStore {
   pendingFeedbackPrompts(limit?: number): Promise<FeedbackPrompt[]>
   claimFeedbackPrompt(phone: string, orderId: string): Promise<boolean>
   confirmFeedbackPrompt(phone: string, orderId: string): Promise<boolean>
+  setItemWhatsappMedia(itemId: string, mediaId: string): Promise<boolean>
   pendingOrderSummaries(limit?: number): Promise<PendingOrderSummary[]>
   claimOrderSummary(orderId: string): Promise<boolean>
   confirmOrderSummary(orderId: string): Promise<boolean>
@@ -187,6 +196,8 @@ function mapItem(item: ConvexMenuItem): MenuItem {
     ...(item.recentOrderCount !== undefined ? { recentOrderCount: item.recentOrderCount } : {}),
     // Meta fetches header images by URL, so only absolute https links are usable.
     ...(item.imageUrl?.startsWith('https://') ? { imageUrl: item.imageUrl } : {}),
+    ...(item.whatsappMediaId ? { whatsappMediaId: item.whatsappMediaId } : {}),
+    ...(item.whatsappMediaAt !== undefined ? { whatsappMediaAt: item.whatsappMediaAt } : {}),
   }
 }
 
@@ -278,6 +289,9 @@ export function createBotStore(convexUrl: string, restaurantId: string): BotStor
     },
     async confirmFeedbackPrompt(phone, orderId) {
       return await client.mutation(confirmFeedbackPromptRef, { restaurantId, phone, orderId })
+    },
+    async setItemWhatsappMedia(itemId, mediaId) {
+      return await client.mutation(setItemWhatsappMediaRef, { restaurantId, itemId, mediaId })
     },
     async pendingOrderSummaries(limit) {
       return await client.query(pendingOrderSummariesRef, {

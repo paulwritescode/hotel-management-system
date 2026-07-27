@@ -13,6 +13,9 @@ export type MenuItem = {
   recentOrderCount?: number
   /** Resolved by Convex from imageStorageId, falling back to externalImageUrl. */
   imageUrl?: string
+  /** Cached Meta media id for imageUrl, so sends skip Meta re-fetching the source. */
+  whatsappMediaId?: string
+  whatsappMediaAt?: number
 }
 
 export type CartLine = {
@@ -82,7 +85,8 @@ export type InteractiveButtonMessage = {
   type: 'interactive'
   interactive: {
     type: 'button'
-    header?: { type: 'image'; image: { link: string } }
+    /** `id` references media already uploaded to Meta; `link` makes Meta fetch the URL each send. */
+    header?: { type: 'image'; image: { id: string } | { link: string } }
     body: { text: string }
     footer?: { text: string }
     action: {

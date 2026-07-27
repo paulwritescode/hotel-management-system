@@ -32,6 +32,11 @@ export default defineSchema({
     unit: v.optional(v.string()),
     imageStorageId: v.optional(v.id('_storage')),
     externalImageUrl: v.optional(v.string()),
+    // Meta media id for this dish's photo, cached after the first upload. Sending an image header
+    // by id skips the ~1s Meta spends re-fetching the source URL on every send. Meta deletes media
+    // after 30 days, so this is re-uploaded once it goes stale (see WHATSAPP_MEDIA_TTL_MS).
+    whatsappMediaId: v.optional(v.string()),
+    whatsappMediaAt: v.optional(v.number()),
     imageAlt: v.optional(v.string()),
     imageCredit: v.optional(v.string()),
     imageCreditUrl: v.optional(v.string()),

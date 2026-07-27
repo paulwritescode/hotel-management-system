@@ -151,11 +151,13 @@ export function formatKes(amount: number): string {
   return amount.toLocaleString('en-KE')
 }
 
+export type ImageHeader = { id: string } | { link: string }
+
 function buttonMessage(
   to: string,
   body: string,
   buttons: Array<{ id: string; title: string }>,
-  options: { imageUrl?: string; footer?: string } = {},
+  options: { image?: ImageHeader; footer?: string } = {},
 ): InteractiveButtonMessage {
   if (body.length > MAX_BODY_LENGTH) throw new Error('Interactive body exceeds 1024 characters')
   if (buttons.length > MAX_BUTTONS) throw new Error('Interactive message exceeds 3 reply buttons')
@@ -167,7 +169,7 @@ function buttonMessage(
     type: 'interactive',
     interactive: {
       type: 'button',
-      ...(options.imageUrl ? { header: { type: 'image' as const, image: { link: options.imageUrl } } } : {}),
+      ...(options.image ? { header: { type: 'image' as const, image: options.image } } : {}),
       body: { text: body },
       ...(options.footer ? { footer: { text: clip(options.footer, MAX_FOOTER) } } : {}),
       action: {
@@ -187,6 +189,7 @@ export function buildItemAddedMessage(
   added: { item: MenuItem; quantity: number },
   items: MenuItem[],
   cart: Array<{ itemId: string; quantity: number }>,
+  image?: ImageHeader,
 ): InteractiveButtonMessage {
   const lead = `*${added.quantity} × ${added.item.name}* added to your order.`
   const withDescription = [
@@ -202,7 +205,7 @@ export function buildItemAddedMessage(
       ? withDescription
       : clip([lead, '', formatCart(items, cart)].join('\n'), MAX_BODY_LENGTH)
   return buttonMessage(to, body, CART_ACTION_BUTTONS, {
-    ...(added.item.imageUrl ? { imageUrl: added.item.imageUrl } : {}),
+    ...(image ? { image } : {}),
     footer: 'Add as many dishes as you like — they arrive as one order.',
   })
 }

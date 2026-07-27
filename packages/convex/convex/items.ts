@@ -48,6 +48,8 @@ type ItemInput = {
   imageAlt?: string
   imageCredit?: string
   imageCreditUrl?: string
+  whatsappMediaId?: string
+  whatsappMediaAt?: number
 }
 
 function optionalText(value: string | undefined, max: number): string | undefined {
@@ -120,6 +122,31 @@ export const available = queryGeneric({
   },
 })
 
+// Meta deletes uploaded media after 30 days; re-upload comfortably before that.
+export const WHATSAPP_MEDIA_TTL_MS = 25 * 24 * 60 * 60 * 1000
+
+/**
+ * Caches the Meta media id the Worker got back after uploading this dish's photo, so later sends
+ * reference it by id instead of making Meta re-fetch the source URL. Cleared automatically when a
+ * manager changes the image, since the cached id would then show the old photo.
+ */
+export const setWhatsappMedia = mutationGeneric({
+  args: {
+    restaurantId: v.id('restaurants'),
+    itemId: v.id('items'),
+    mediaId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.itemId)
+    if (!item || String(item.restaurantId) !== String(args.restaurantId)) return false
+    await ctx.db.patch(args.itemId, {
+      whatsappMediaId: args.mediaId,
+      whatsappMediaAt: Date.now(),
+    })
+    return true
+  },
+})
+
 export const inventory = queryGeneric({
   args: { token: v.string(), restaurantId: v.id('restaurants'), includeArchived: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
@@ -166,6 +193,14 @@ export const update = mutationGeneric({
       item.externalImageUrl = undefined
       item.imageCredit = undefined
       item.imageCreditUrl = undefined
+    }
+    // Any change of photo invalidates the cached Meta media id, which still points at the old one.
+    const changingImage =
+      replacingStoredImage ||
+      (item.externalImageUrl !== undefined && item.externalImageUrl !== existing.externalImageUrl)
+    if (changingImage) {
+      item.whatsappMediaId = undefined
+      item.whatsappMediaAt = undefined
     }
     await ctx.db.patch(args.itemId, { ...item, updatedAt: Date.now() })
     if (replacingStoredImage && existing.imageStorageId) await ctx.storage.delete(existing.imageStorageId)

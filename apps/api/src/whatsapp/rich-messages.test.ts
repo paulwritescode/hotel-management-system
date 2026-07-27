@@ -39,13 +39,11 @@ describe('item added message', () => {
       { item: pilau, quantity: 1 },
       [pilau],
       [{ itemId: 'item-1', quantity: 1 }],
+      { id: 'media-9' },
     )
     if (message.interactive.type !== 'button') throw new Error('expected a button message')
 
-    expect(message.interactive.header).toEqual({
-      type: 'image',
-      image: { link: 'https://images.example.com/pilau.jpg' },
-    })
+    expect(message.interactive.header).toEqual({ type: 'image', image: { id: 'media-9' } })
     expect(message.interactive.body.text).toContain('*1 × Pilau* added to your order.')
     expect(message.interactive.body.text).toContain('*Your cart*')
     expect(message.interactive.body.text).toContain('*Subtotal:* KES 300')
@@ -55,7 +53,7 @@ describe('item added message', () => {
     ])
   })
 
-  it('omits the header when the dish has no photo rather than sending a broken image', () => {
+  it('omits the header when there is no image, still delivering cart and buttons', () => {
     const { imageUrl: _ignored, ...noPhoto } = pilau
     const message = buildItemAddedMessage(
       '+254700000001',
@@ -67,6 +65,7 @@ describe('item added message', () => {
 
     expect(message.interactive.header).toBeUndefined()
     expect(message.interactive.body.text).toContain('*2 × Pilau*')
+    expect(message.interactive.action.buttons).toHaveLength(2)
   })
 
   it('clips a large cart instead of throwing away the whole message', () => {
@@ -88,7 +87,7 @@ describe('item added message', () => {
     const buttons = [
       buildItemAddedMessage('+254700000001', { item: pilau, quantity: 1 }, [pilau], [
         { itemId: 'item-1', quantity: 1 },
-      ]),
+      ], { id: 'media-9' }),
       buildConsentButtons('+254700000001'),
     ].flatMap((message) =>
       message.interactive.type === 'button' ? message.interactive.action.buttons : [],
