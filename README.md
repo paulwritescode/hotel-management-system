@@ -142,7 +142,7 @@ Copy the examples and fill them in. Nothing secret is committed; every key is pr
 | `NEXT_PUBLIC_RESTAURANT_ID` | The seeded restaurant id |
 | `NEXT_PUBLIC_WHATSAPP_MSISDN` | Restaurant WhatsApp number used to build table QR links |
 
-**Worker** (`apps/api/.dev.vars`, from `apps/api/.dev.vars.example`): `WHATSAPP_TOKEN`, `PHONE_NUMBER_ID`, `VERIFY_TOKEN`, `META_APP_SECRET`, `CONVEX_URL`, `NVIDIA_API_KEY`, `RESTAURANT_ID`, `BUILD_SHA`, `FEEDBACK_DELAY_MS`.
+**Worker** (`apps/api/.dev.vars`, from `apps/api/.dev.vars.example`): `WHATSAPP_TOKEN`, `PHONE_NUMBER_ID`, `VERIFY_TOKEN`, `META_APP_SECRET`, `CONVEX_URL`, `NVIDIA_API_KEY`, `RESTAURANT_ID`, `BUILD_SHA`.
 
 **Convex deployment variables**: `SESSION_SECRET` (matches the web value) and, only while seeding, a temporary `SEED_SECRET`.
 

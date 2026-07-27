@@ -1,7 +1,9 @@
 import { internalMutationGeneric, makeFunctionReference, mutationGeneric, queryGeneric } from 'convex/server'
 import { v } from 'convex/values'
 import {
+  FEEDBACK_PROMPT_DELAY_MS,
   FEEDBACK_PROMPT_RETRY_MS,
+  FEEDBACK_WINDOW_MS,
   MAX_FEEDBACK_PROMPT_ATTEMPTS,
   assertPositiveInteger,
   cleanRequired,
@@ -182,8 +184,8 @@ export const transition = mutationGeneric({
       patch.servedByName = staff.name
       patch.servedAt = now
       if (order.customerPhone) {
-        await ctx.scheduler.runAfter(10 * 60 * 1000, feedbackRef, { phone: order.customerPhone, orderId: order._id })
-        await ctx.scheduler.runAfter(40 * 60 * 1000, closeFeedbackRef, { phone: order.customerPhone, orderId: order._id })
+        await ctx.scheduler.runAfter(FEEDBACK_PROMPT_DELAY_MS, feedbackRef, { phone: order.customerPhone, orderId: order._id })
+        await ctx.scheduler.runAfter(FEEDBACK_PROMPT_DELAY_MS + FEEDBACK_WINDOW_MS, closeFeedbackRef, { phone: order.customerPhone, orderId: order._id })
       }
     }
     if (args.status === 'closed') patch.closedAt = now

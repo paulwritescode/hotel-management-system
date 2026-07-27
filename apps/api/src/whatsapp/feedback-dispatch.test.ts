@@ -12,7 +12,6 @@ const env: RuntimeEnv = {
   convexUrl: 'https://example.convex.cloud',
   restaurantId: 'restaurant-1',
   buildSha: 'test',
-  feedbackDelayMs: 600_000,
 }
 
 function prompt(overrides: Partial<FeedbackPrompt> = {}): FeedbackPrompt {

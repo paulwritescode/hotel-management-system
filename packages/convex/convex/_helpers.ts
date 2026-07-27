@@ -13,6 +13,12 @@ export const MAX_FAILED_ATTEMPTS = 5
 export const MAX_FEEDBACK_PROMPT_ATTEMPTS = 3
 export const FEEDBACK_PROMPT_RETRY_MS = 2 * 60 * 1000
 
+// How long after the counter marks an order served before the diner is asked to rate it. Owned
+// here rather than in the Worker because serving happens in Convex; the Worker only delivers.
+export const FEEDBACK_PROMPT_DELAY_MS = 2 * 60 * 1000
+// How long the diner then has to answer before the session is closed unrated.
+export const FEEDBACK_WINDOW_MS = 40 * 60 * 1000
+
 export type StaffRole = 'owner' | 'manager' | 'counter' | 'waiter'
 export type ItemCategory = 'staple' | 'vegetable' | 'meat' | 'bread' | 'drink' | 'dessert' | 'side'
 

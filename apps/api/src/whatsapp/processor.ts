@@ -399,6 +399,26 @@ async function handleMessage(
   // table still makes sense rather than falling through to "I did not understand that" — the QR is
   // the entry point, so scanning it twice is the single most likely thing a diner does.
   const rescannedTable = parseTableNumber(message.text)
+
+  // An order is already with the kitchen. Re-scanning the QR here is the diner checking in, not
+  // starting a second order — the session runs until they rate. Explain where they are instead of
+  // answering "I did not understand that"; the next order begins once the rating closes this one.
+  if (rescannedTable !== undefined && session.state === 'PLACED') {
+    await sender.sendText(
+      phone,
+      [
+        '*Your order is already in* 👨‍🍳',
+        '',
+        `It is being prepared for table ${session.tableNumber}. We will send your order summary once the counter confirms it, and ask how it was after it is served.`,
+        '',
+        'You can order again once this order is complete.',
+      ].join('\n'),
+    )
+    return
+  }
+
+  // AWAITING_FEEDBACK needs no branch here: handleFeedback runs earlier and already re-sends the
+  // rating prompt for anything that is not a rating or a comment.
   if (
     rescannedTable !== undefined &&
     (session.state === 'BROWSING' || session.state === 'CATEGORY' || session.state === 'CART')
@@ -549,10 +569,6 @@ export async function handleInboundPayload(payload: unknown, env: RuntimeEnv): P
     phrase: (items, apiKey) => phraseRecommendations(items, apiKey),
   }
   await processInboundMessages(messages, dependencies)
-}
-
-export function feedbackDueAt(servedAt: number, env: RuntimeEnv): number {
-  return servedAt + env.feedbackDelayMs
 }
 
 export async function sendServedFeedbackPrompt(

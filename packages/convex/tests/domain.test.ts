@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { assertOrderTransition, computeOrderTotal, shouldRestartSession } from '../convex/_domain'
+import { FEEDBACK_PROMPT_DELAY_MS, FEEDBACK_WINDOW_MS } from '../convex/_helpers'
+
+describe('feedback timing', () => {
+  it('asks for a rating two minutes after the counter marks an order served', () => {
+    expect(FEEDBACK_PROMPT_DELAY_MS).toBe(2 * 60 * 1000)
+  })
+
+  it('leaves the diner a generous window to answer before closing unrated', () => {
+    expect(FEEDBACK_WINDOW_MS).toBeGreaterThan(FEEDBACK_PROMPT_DELAY_MS)
+  })
+})
 
 describe('shouldRestartSession', () => {
   const now = 1_000_000

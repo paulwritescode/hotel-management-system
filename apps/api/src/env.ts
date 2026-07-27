@@ -7,7 +7,6 @@ export interface WorkerEnv {
   NVIDIA_API_KEY?: string
   RESTAURANT_ID?: string
   BUILD_SHA?: string
-  FEEDBACK_DELAY_MS?: string
 }
 
 export interface RuntimeEnv {
@@ -18,7 +17,6 @@ export interface RuntimeEnv {
   convexUrl: string
   restaurantId: string
   buildSha: string
-  feedbackDelayMs: number
   nvidiaApiKey?: string
 }
 
@@ -51,12 +49,6 @@ export function validateRuntimeEnv(env: WorkerEnv): RuntimeEnv {
     throw new Error('CONVEX_URL must use HTTPS')
   }
 
-  const configuredDelay = env.FEEDBACK_DELAY_MS?.trim()
-  const feedbackDelayMs = configuredDelay ? Number(configuredDelay) : 600_000
-  if (!Number.isSafeInteger(feedbackDelayMs) || feedbackDelayMs < 0) {
-    throw new Error('FEEDBACK_DELAY_MS must be a non-negative integer')
-  }
-
   const nvidiaApiKey = env.NVIDIA_API_KEY?.trim()
   return {
     whatsappToken: required(env, 'WHATSAPP_TOKEN'),
@@ -66,7 +58,6 @@ export function validateRuntimeEnv(env: WorkerEnv): RuntimeEnv {
     convexUrl,
     restaurantId: required(env, 'RESTAURANT_ID'),
     buildSha: env.BUILD_SHA?.trim() || 'development',
-    feedbackDelayMs,
     ...(nvidiaApiKey ? { nvidiaApiKey } : {}),
   }
 }

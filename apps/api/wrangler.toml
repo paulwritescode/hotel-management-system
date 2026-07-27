@@ -8,7 +8,6 @@ enabled = true
 
 [vars]
 BUILD_SHA = "development"
-FEEDBACK_DELAY_MS = "600000"
 
 [triggers]
 crons = ["* * * * *"]
