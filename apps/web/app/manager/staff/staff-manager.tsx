@@ -1,6 +1,7 @@
 'use client'
 
 import { useAction, useMutation, useQuery } from 'convex/react'
+import { Check, Copy, RefreshCw } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { ActivityFeed } from '@/components/activity-feed'
 import { DashboardShell } from '@/components/shell'
@@ -16,9 +17,11 @@ import { useAuthArgs, useBackendAvailable, useStaffIdentity } from '@/components
 import { api } from '@/lib/convex'
 import { demoStaff } from '@/lib/demo-data'
 import { canManageStaff, creatableRoles, roleLevel, type Staff } from '@/lib/models'
+import { credentialMessage, generatePin } from '@/lib/staff-credentials'
 
 type ViewerRole = Staff['role']
-type Reveal = { name: string; pin: string }
+type Reveal = { name: string; role: Staff['role']; pin: string }
+
 
 function relativeTime(at?: number): string {
   if (!at) return '—'
@@ -33,6 +36,35 @@ function relativeTime(at?: number): string {
 
 const actionLabels: Record<string, string> = {
   create: 'Created', update_role: 'Changed role', enable: 'Enabled', disable: 'Disabled', reset_pin: 'Reset PIN',
+}
+
+// The PIN is shown exactly once — it is stored only as a salted PBKDF2 hash and cannot be read
+// back — so copying has to happen while this panel is open.
+function PinReveal({ reveal, onDone }: { reveal: Reveal; onDone: () => void }) {
+  const [copied, setCopied] = useState(false)
+  const notify = useToast()
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(credentialMessage(reveal))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      notify('Clipboard is unavailable — copy the PIN manually', 'error')
+    }
+  }
+
+  return <div className="pin-reveal">
+    <p className="muted">Share these details with <strong>{reveal.name}</strong> now. The PIN will not be shown again.</p>
+    <p className="pin-reveal-value">{reveal.pin}</p>
+    <div className="pin-reveal-meta fine-print muted">{reveal.name} · {reveal.role}</div>
+    <div className="form-actions">
+      <Button type="button" variant="secondary" onClick={copy}>
+        {copied ? <><Check size={16} /> Copied</> : <><Copy size={16} /> Copy details</>}
+      </Button>
+      <Button type="button" onClick={onDone}>Done</Button>
+    </div>
+  </div>
 }
 
 export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: ViewerRole | undefined; viewerStaffId?: string | undefined }) {
@@ -58,6 +90,7 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
 
   const [adding, setAdding] = useState(false)
   const [addReveal, setAddReveal] = useState<Reveal | null>(null)
+  const [draftPin, setDraftPin] = useState<string | null>(null)
   const [editing, setEditing] = useState<Staff | null>(null)
   const [pinTarget, setPinTarget] = useState<Staff | null>(null)
   const [pinReveal, setPinReveal] = useState<Reveal | null>(null)
@@ -75,19 +108,19 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
     const data = new FormData(event.currentTarget)
     const name = String(data.get('name') ?? '').trim()
     const role = String(data.get('role')) as Staff['role']
-    const pin = String(data.get('pin') ?? '')
-    if (name.length < 2 || !assignableRoles.includes(role) || !/^\d{4,6}$/u.test(pin)) { notify('Enter a name, permitted role and 4–6 digit PIN', 'error'); return }
+    if (name.length < 2 || !assignableRoles.includes(role)) { notify('Enter a name and a permitted role', 'error'); return }
+    if (!draftPin) { notify('Generate a PIN before adding the staff member', 'error'); return }
     setBusy(true)
     try {
-      if (backend) await createStaff({ ...auth!, name, role, pin })
+      if (backend) await createStaff({ ...auth!, name, role, pin: draftPin })
       else setStaff((current) => [...current, { _id: `staff-${Date.now()}`, name, role, enabled: true }])
-      setAddReveal({ name, pin })
+      setAddReveal({ name, role, pin: draftPin })
       notify('Staff member added')
     } catch (reason) { notify(reason instanceof Error ? reason.message : 'Staff member could not be added', 'error') }
     finally { setBusy(false) }
   }
 
-  function closeAdd() { setAdding(false); setAddReveal(null) }
+  function closeAdd() { setAdding(false); setAddReveal(null); setDraftPin(null) }
 
   async function saveEdit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -116,16 +149,13 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
     } catch { setStaff(previous); notify('Access update failed and was reverted', 'error') }
   }
 
-  async function resetPin(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!pinTarget) return
-    const pin = String(new FormData(event.currentTarget).get('pin') ?? '')
-    if (!/^\d{4,6}$/u.test(pin)) { notify('Enter a 4–6 digit PIN', 'error'); return }
+  async function resetPin(person: Staff) {
+    const pin = generatePin()
     setBusy(true)
     try {
-      if (backend) await setPin({ token: auth!.token, staffId: pinTarget._id, pin })
-      setPinReveal({ name: pinTarget.name, pin })
-      notify('PIN updated')
+      if (backend) await setPin({ token: auth!.token, staffId: person._id, pin })
+      setPinReveal({ name: person.name, role: person.role, pin })
+      notify('PIN reset — the previous PIN no longer works')
     } catch (reason) { notify(reason instanceof Error ? reason.message : 'PIN could not be updated', 'error') }
     finally { setBusy(false) }
   }
@@ -157,11 +187,12 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
 
       {rows.length === 0 ? <Card><p className="muted">No counter or waiter staff yet.</p></Card>
         : <Card className="staff-table-card"><TableWrap><Table>
-          <thead><tr><Th>Name</Th><Th>Role</Th><Th>Status</Th><Th>Last active</Th><Th className="staff-actions-col">Actions</Th></tr></thead>
-          <tbody>{rows.map((person) => {
+          <thead><tr><Th className="staff-index-col">#</Th><Th>Name</Th><Th>Role</Th><Th>Status</Th><Th>Last active</Th><Th className="staff-actions-col">Actions</Th></tr></thead>
+          <tbody>{rows.map((person, index) => {
             const actionable = canManageStaff(actorRole, actorId, person)
             const activeAt = lastActive?.[person._id]
             return <tr key={person._id} className={person.enabled ? 'staff-row staff-row-active' : 'staff-row staff-row-disabled'}>
+              <Td className="staff-index-col fine-print muted">{index + 1}</Td>
               <Td><div className="staff-name-cell"><span className="staff-avatar">{person.name.trim().charAt(0).toUpperCase()}</span><span><span className="body-strong">{person.name}</span>{person._id === actorId && <span className="fine-print muted"> · you</span>}</span></div></Td>
               <Td><span className="staff-role-pill">{person.role}</span></Td>
               <Td><span className={person.enabled ? 'staff-status staff-status-active' : 'staff-status staff-status-disabled'}><span className="staff-status-dot" aria-hidden="true" />{person.enabled ? 'Active' : 'Disabled'}</span></Td>
@@ -170,7 +201,10 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
                 ? <RowActions label={`Actions for ${person.name}`} actions={[
                     { label: 'Edit', onClick: () => setEditing(person) },
                     { label: person.enabled ? 'Disable' : 'Enable', onClick: () => toggle(person) },
-                    { label: 'Reset PIN', onClick: () => setPinTarget(person) },
+                    // Stored PINs are salted hashes, so an existing PIN can never be read back to
+                    // be copied. Issuing a fresh one is the only way to hand a staff member their
+                    // credentials again — the label says so, because it invalidates the old PIN.
+                    { label: 'New PIN & copy', onClick: () => setPinTarget(person) },
                     { label: 'Remove', danger: true, onClick: () => setRemoveTarget(person) },
                   ]} />
                 : <span className="fine-print muted">—</span>}</Td>
@@ -200,18 +234,35 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
 
     <Dialog open={adding} onClose={() => { if (!busy) closeAdd() }} title="Add staff member" description="PINs are hashed with salted PBKDF2 and shown only once here">
       {addReveal
-        ? <div className="pin-reveal"><p className="muted">Share this PIN with <strong>{addReveal.name}</strong> now. It will not be shown again.</p><p className="pin-reveal-value">{addReveal.pin}</p><div className="form-actions"><Button onClick={closeAdd}>Done</Button></div></div>
-        : <form className="form-stack" onSubmit={add}><div className="field"><label htmlFor="staff-name">Name</label><Input id="staff-name" name="name" minLength={2} required /></div><div className="field"><label htmlFor="staff-role">Role</label><Select id="staff-role" name="role" defaultValue={assignableRoles.at(-1) ?? 'waiter'}>{assignableRoles.map((role) => <option key={role} value={role}>{role}</option>)}</Select></div><div className="field"><label htmlFor="staff-pin">PIN</label><Input id="staff-pin" name="pin" type="password" inputMode="numeric" minLength={4} maxLength={6} pattern="[0-9]{4,6}" required /></div><div className="form-actions"><Button type="button" variant="secondary" disabled={busy} onClick={closeAdd}>Discard</Button><Button type="submit" disabled={busy}>Add staff</Button></div></form>}
+        ? <PinReveal reveal={addReveal} onDone={closeAdd} />
+        : <form className="form-stack" onSubmit={add}>
+            <div className="field"><label htmlFor="staff-name">Name</label><Input id="staff-name" name="name" minLength={2} required /></div>
+            <div className="field"><label htmlFor="staff-role">Role</label><Select id="staff-role" name="role" defaultValue={assignableRoles.at(-1) ?? 'waiter'}>{assignableRoles.map((role) => <option key={role} value={role}>{role}</option>)}</Select></div>
+            <div className="field">
+              <label>PIN</label>
+              {draftPin
+                ? <div className="pin-draft">
+                    <span className="pin-draft-value">{draftPin}</span>
+                    <button type="button" className="pin-draft-action" onClick={() => setDraftPin(generatePin())} aria-label="Generate a different PIN"><RefreshCw size={15} /></button>
+                  </div>
+                : <Button type="button" variant="secondary" onClick={() => setDraftPin(generatePin())}>Generate PIN</Button>}
+              <p className="fine-print muted">{draftPin ? 'Add the staff member to save it, then copy the full details.' : 'A random 6-digit PIN is created for you.'}</p>
+            </div>
+            <div className="form-actions"><Button type="button" variant="secondary" disabled={busy} onClick={closeAdd}>Discard</Button><Button type="submit" disabled={busy || !draftPin}>Add staff</Button></div>
+          </form>}
     </Dialog>
 
     <Dialog open={Boolean(editing)} onClose={() => { if (!busy) setEditing(null) }} title="Edit staff member" description="Change the name or role. Use reset PIN to change the PIN.">
       {editing && <form className="form-stack" onSubmit={saveEdit}><div className="field"><label htmlFor="edit-name">Name</label><Input id="edit-name" name="name" defaultValue={editing.name} minLength={2} required /></div><div className="field"><label htmlFor="edit-role">Role</label><Select id="edit-role" name="role" defaultValue={editing.role}>{Array.from(new Set([editing.role, ...assignableRoles])).map((role) => <option key={role} value={role}>{role}</option>)}</Select></div><div className="form-actions"><Button type="button" variant="secondary" disabled={busy} onClick={() => setEditing(null)}>Discard</Button><Button type="submit" disabled={busy}>Save changes</Button></div></form>}
     </Dialog>
 
-    <Dialog open={Boolean(pinTarget)} onClose={() => { if (!busy) closePin() }} title="Reset PIN" description={pinReveal ? '' : `Create a new 4–6 digit PIN for ${pinTarget?.name ?? 'this staff member'}`}>
+    <Dialog open={Boolean(pinTarget)} onClose={() => { if (!busy) closePin() }} title="New PIN" description={pinReveal ? '' : `Issue a new PIN for ${pinTarget?.name ?? 'this staff member'}`}>
       {pinReveal
-        ? <div className="pin-reveal"><p className="muted">Share this PIN with <strong>{pinReveal.name}</strong> now. It will not be shown again.</p><p className="pin-reveal-value">{pinReveal.pin}</p><div className="form-actions"><Button onClick={closePin}>Done</Button></div></div>
-        : <form className="form-stack" onSubmit={resetPin}><div className="field"><label htmlFor="new-pin">New PIN</label><Input id="new-pin" name="pin" type="password" inputMode="numeric" minLength={4} maxLength={6} pattern="[0-9]{4,6}" required autoFocus /></div><div className="form-actions"><Button type="button" variant="secondary" disabled={busy} onClick={closePin}>Discard</Button><Button type="submit" disabled={busy}>Update PIN</Button></div></form>}
+        ? <PinReveal reveal={pinReveal} onDone={closePin} />
+        : <div className="form-stack">
+            <p className="muted">Stored PINs are salted hashes and can never be read back, so an existing PIN cannot be copied. Generating a new one lets you share their details again — <strong>their current PIN will stop working immediately</strong>.</p>
+            <div className="form-actions"><Button type="button" variant="secondary" disabled={busy} onClick={closePin}>Cancel</Button><Button type="button" disabled={busy} onClick={() => pinTarget && resetPin(pinTarget)}>Generate new PIN</Button></div>
+          </div>}
     </Dialog>
 
     <Dialog open={Boolean(removeTarget)} onClose={() => { if (!busy) setRemoveTarget(null) }} title="Remove staff member" description="This permanently deletes the account. Past orders they handled are unaffected.">

@@ -111,6 +111,8 @@ export type PendingOrderSummary = OrderSummary & {
   orderId: string
   phone: string
   payment: PaymentConfig
+  /** Convex storage URL for the restaurant logo, absent when none is configured. */
+  logoUrl?: string
 }
 
 const setItemWhatsappMediaRef = makeFunctionReference<

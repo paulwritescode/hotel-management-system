@@ -281,6 +281,10 @@ export const pendingOrderSummaries = queryGeneric({
   handler: async (ctx, args) => {
     const now = Date.now()
     const restaurant = await ctx.db.get(args.restaurantId)
+    // Resolved once per batch rather than per order — every summary in a run shares one logo.
+    const logoUrl = restaurant?.logoStorageId
+      ? await ctx.storage.getUrl(restaurant.logoStorageId)
+      : null
     const orders = await ctx.db
       .query('orders')
       .withIndex('by_restaurant_placedAt', (query: any) =>
@@ -317,6 +321,7 @@ export const pendingOrderSummaries = queryGeneric({
             : {}),
           ...(restaurant?.mpesaTillNumber ? { mpesaTillNumber: restaurant.mpesaTillNumber } : {}),
         },
+        ...(logoUrl ? { logoUrl } : {}),
       }))
   },
 })

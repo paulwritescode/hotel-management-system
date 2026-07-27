@@ -13,6 +13,9 @@ export default defineSchema({
       v.literal('cash'), v.literal('mpesa'), v.literal('card'), v.literal('other'),
     ))),
     mpesaTillNumber: v.optional(v.string()),
+    // Brand mark rendered at the top of the order summary PDF. Held in Convex storage rather than
+    // bundled into the Worker so the Worker stays small and the logo can change without a deploy.
+    logoStorageId: v.optional(v.id('_storage')),
     createdAt: v.number(),
   }),
 

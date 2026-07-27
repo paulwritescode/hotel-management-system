@@ -650,6 +650,35 @@ function toReceiptPaymentConfig(payment?: PaymentConfig): ReceiptPaymentConfig {
   }
 }
 
+/**
+ * The logo is the same bytes on every order summary, so it is fetched once per isolate rather than
+ * per PDF. Kept out of the Worker bundle deliberately: an 87KB PNG would be dead weight in every
+ * deploy and could only be changed by shipping code.
+ */
+let cachedLogo: { url: string; bytes: Uint8Array } | undefined
+
+async function loadLogo(url: string | undefined): Promise<Uint8Array | undefined> {
+  if (!url) return undefined
+  if (cachedLogo?.url === url) return cachedLogo.bytes
+  try {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`logo fetch failed with status ${response.status}`)
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    cachedLogo = { url, bytes }
+    return bytes
+  } catch (error) {
+    // A missing logo must never cost the diner their order summary; the PDF falls back to the
+    // restaurant name in text.
+    console.error(
+      JSON.stringify({
+        event: 'summary_logo_fetch_failed',
+        error: error instanceof Error ? error.message : 'unknown error',
+      }),
+    )
+    return undefined
+  }
+}
+
 export type SummaryDispatchDependencies = {
   store: Pick<BotStore, 'pendingOrderSummaries' | 'claimOrderSummary' | 'confirmOrderSummary'>
   sender: WhatsAppSender
@@ -688,7 +717,12 @@ export async function dispatchOrderSummaries(
   for (const order of pending) {
     try {
       if (!(await store.claimOrderSummary(order.orderId))) continue
-      const pdf = await buildOrderSummaryPdf(order, toReceiptPaymentConfig(order.payment))
+      const logoPng = await loadLogo(order.logoUrl)
+      const pdf = await buildOrderSummaryPdf(
+        order,
+        toReceiptPaymentConfig(order.payment),
+        logoPng ? { logoPng } : {},
+      )
       const mediaId = await sender.uploadMedia(pdf, orderSummaryFilename(order), 'application/pdf')
       await sender.send({
         messaging_product: 'whatsapp',

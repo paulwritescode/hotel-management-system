@@ -445,6 +445,15 @@ h3 { font-size: 24px; line-height: 1.3; letter-spacing: 0; }
 .pin-reveal { display: grid; gap: 16px; text-align: center; }
 .pin-reveal-value { margin: 0; font-family: var(--hf-font-display); font-size: 34px; font-weight: 600; letter-spacing: .28em; color: var(--hf-ink); }
 .pin-reveal .form-actions { justify-content: center; }
+.pin-reveal-meta { text-transform: capitalize; }
+
+/* Generated PIN shown before the staff member is saved. */
+.pin-draft { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border: 1px solid var(--hf-line); border-radius: 10px; background: var(--hf-surface-muted, transparent); }
+.pin-draft-value { font-family: var(--hf-font-display); font-size: 24px; font-weight: 600; letter-spacing: .22em; color: var(--hf-ink); }
+.pin-draft-action { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--hf-line); border-radius: 8px; background: none; color: var(--hf-ink-muted, inherit); cursor: pointer; }
+.pin-draft-action:hover { color: var(--hf-ink); }
+
+.staff-index-col { width: 44px; text-align: right; }
 
 @media (max-width: 640px) {
   .staff-row-actions { justify-content: flex-start; }

@@ -24,6 +24,31 @@ export const settings = queryGeneric({
   },
 })
 
+// Upload target for the brand logo. Manager-and-above, matching the menu image upload.
+export const generateLogoUploadUrl = mutationGeneric({
+  args: { token: v.string(), restaurantId: v.id('restaurants') },
+  handler: async (ctx, args) => {
+    await requireStaff(ctx.db, args.token, ['manager'], String(args.restaurantId))
+    return ctx.storage.generateUploadUrl()
+  },
+})
+
+export const setLogo = mutationGeneric({
+  args: { token: v.string(), restaurantId: v.id('restaurants'), storageId: v.id('_storage') },
+  handler: async (ctx, args) => {
+    const staff = await requireStaff(ctx.db, args.token, ['manager'], String(args.restaurantId))
+    const restaurant = await ctx.db.get(args.restaurantId)
+    if (!restaurant) throw new Error('Restaurant not found')
+    await ctx.db.patch(args.restaurantId, { logoStorageId: args.storageId })
+    // Replacing the logo orphans the previous file; delete it so storage does not grow unbounded.
+    if (restaurant.logoStorageId && String(restaurant.logoStorageId) !== String(args.storageId)) {
+      await ctx.storage.delete(restaurant.logoStorageId)
+    }
+    await logActivity(ctx.db, staff, 'settings.logo', 'Updated the restaurant logo')
+    return args.storageId
+  },
+})
+
 // §2.4 wording precedent: settlement configuration is a manager-and-above concern. Configured at
 // /manager/settings by manager and owner.
 export const updateSettings = mutationGeneric({
