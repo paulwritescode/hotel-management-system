@@ -11,6 +11,8 @@ export type MenuItem = {
   archived: boolean
   quantityOnHand?: number
   recentOrderCount?: number
+  /** Resolved by Convex from imageStorageId, falling back to externalImageUrl. */
+  imageUrl?: string
 }
 
 export type CartLine = {
@@ -69,4 +71,47 @@ export type InteractiveListMessage = {
   }
 }
 
-export type OutboundMessage = TextMessage | InteractiveListMessage
+/**
+ * Interactive reply buttons. Meta caps these at three buttons of 20 characters each; an optional
+ * image header lets one message carry a dish photo, its formatted caption, and the next actions
+ * together, which a plain image message cannot do.
+ */
+export type InteractiveButtonMessage = {
+  messaging_product: 'whatsapp'
+  to: string
+  type: 'interactive'
+  interactive: {
+    type: 'button'
+    header?: { type: 'image'; image: { link: string } }
+    body: { text: string }
+    footer?: { text: string }
+    action: {
+      buttons: Array<{ type: 'reply'; reply: { id: string; title: string } }>
+    }
+  }
+}
+
+export type ImageMessage = {
+  messaging_product: 'whatsapp'
+  to: string
+  type: 'image'
+  image: { link: string; caption?: string }
+}
+
+/**
+ * Sent by media `id` rather than a public `link`: the summary carries a diner's name and order, so
+ * uploading the bytes straight to Meta avoids ever exposing it at a fetchable URL.
+ */
+export type DocumentMessage = {
+  messaging_product: 'whatsapp'
+  to: string
+  type: 'document'
+  document: { id: string; filename: string; caption?: string }
+}
+
+export type OutboundMessage =
+  | TextMessage
+  | InteractiveListMessage
+  | InteractiveButtonMessage
+  | ImageMessage
+  | DocumentMessage

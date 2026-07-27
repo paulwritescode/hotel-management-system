@@ -13,6 +13,18 @@ export function assertOrderTransition(current: OrderStatus, target: OrderStatus)
   if (nextStatus[current] !== target) throw new Error(`Invalid order transition: ${current} -> ${target}`)
 }
 
+/**
+ * Whether an inbound message should restart a diner's conversation from GREETED.
+ *
+ * Expiry is the obvious case. CLOSED is the load-bearing one: it is terminal, no bot state branch
+ * handles it, and because every inbound message extends `expiresAt`, a CLOSED session can never
+ * age out by itself. Without restarting here a diner who completes one order is answered with
+ * "I did not understand that" forever and can never order again.
+ */
+export function shouldRestartSession(state: string, expiresAt: number, now: number): boolean {
+  return expiresAt <= now || state === 'CLOSED'
+}
+
 export function computeOrderTotal(lines: ReadonlyArray<{ priceKesSnapshot: number; quantity: number }>): number {
   if (lines.length === 0) throw new Error('Order must contain at least one line')
   let total = 0

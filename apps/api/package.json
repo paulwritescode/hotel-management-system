@@ -13,9 +13,11 @@
     "clean": "rm -rf dist .wrangler coverage"
   },
   "dependencies": {
+    "@heavenly/receipt": "workspace:*",
     "@heavenly/types": "workspace:*",
     "convex": "1.42.3",
-    "hono": "4.12.31"
+    "hono": "4.12.31",
+    "pdf-lib": "1.17.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260722.1",

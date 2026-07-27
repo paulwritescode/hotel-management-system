@@ -1,6 +1,13 @@
 import { internalMutationGeneric, mutationGeneric, queryGeneric } from 'convex/server'
 import { v } from 'convex/values'
-import { CONVERSATION_TTL_MS, assertPositiveInteger, getActiveTable } from './_helpers'
+import { shouldRestartSession } from './_domain'
+import {
+  CONVERSATION_TTL_MS,
+  FEEDBACK_PROMPT_RETRY_MS,
+  MAX_FEEDBACK_PROMPT_ATTEMPTS,
+  assertPositiveInteger,
+  getActiveTable,
+} from './_helpers'
 
 const state = v.union(
   v.literal('IDLE'), v.literal('GREETED'), v.literal('AWAITING_TABLE'),
@@ -10,6 +17,10 @@ const state = v.union(
 )
 const language = v.union(v.literal('en'), v.literal('sw'))
 const consent = v.union(v.literal('granted'), v.literal('denied'), v.literal('unasked'))
+
+// States in which sending a table number is meaningful. Past AWAITING_NAME the order is being
+// checked out, so a stray table message must not silently move it.
+const TABLE_BINDABLE_STATES = ['GREETED', 'AWAITING_TABLE', 'BROWSING', 'CATEGORY', 'CART']
 
 const transitions: Record<string, readonly string[]> = {
   IDLE: ['GREETED'],
@@ -52,7 +63,12 @@ export const receive = mutationGeneric({
       })
     }
     if (String(existing.restaurantId) !== String(args.restaurantId)) throw new Error('Phone belongs to another restaurant')
-    if (existing.expiresAt <= now) {
+    // CLOSED is terminal: the previous order is finished. Restarting on the next inbound message is
+    // what lets a diner order a second time. Without this they are locked out for good — every
+    // message pushes `expiresAt` forward, so a CLOSED session can never age out on its own, and no
+    // state branch in the bot handles CLOSED, so every reply is "I did not understand that".
+    // The consent answer and language survive the restart so a returning diner is not re-asked.
+    if (shouldRestartSession(existing.state, existing.expiresAt, now)) {
       await ctx.db.replace(existing._id, {
         restaurantId: args.restaurantId, phone, state: 'GREETED', language: args.language ?? existing.language, cart: [],
         marketingConsent: existing.marketingConsent, lastMessageAt: now, expiresAt: now + CONVERSATION_TTL_MS,
@@ -71,7 +87,13 @@ export const bindTable = mutationGeneric({
     await getActiveTable(ctx.db, String(args.restaurantId), args.tableNumber)
     const session = await current(ctx, args.phone)
     if (!session || String(session.restaurantId) !== String(args.restaurantId) || session.expiresAt <= Date.now()) throw new Error('Session expired')
-    if (session.state !== 'GREETED' && session.state !== 'AWAITING_TABLE') throw new Error('Table cannot be changed in this state')
+    // Re-scanning the table QR is normal behaviour — the code prefills "Table N", so a diner who
+    // scans twice, or moves table mid-meal, sends it again. Allowing the re-bind while browsing
+    // keeps that idempotent instead of answering "I did not understand that". The cart is left
+    // untouched; only ordering states past checkout are refused.
+    if (!TABLE_BINDABLE_STATES.includes(session.state)) {
+      throw new Error('Table cannot be changed in this state')
+    }
     const now = Date.now()
     await ctx.db.patch(session._id, { tableNumber: args.tableNumber, state: 'BROWSING', lastMessageAt: now, expiresAt: now + CONVERSATION_TTL_MS })
   },
@@ -161,8 +183,102 @@ export const markAwaitingFeedback = internalMutationGeneric({
     const session = await current(ctx, args.phone)
     if (session && String(session.activeOrderId) === String(args.orderId) && session.state === 'PLACED') {
       const now = Date.now()
-      await ctx.db.patch(session._id, { state: 'AWAITING_FEEDBACK', lastMessageAt: now, expiresAt: now + CONVERSATION_TTL_MS })
+      await ctx.db.patch(session._id, {
+        state: 'AWAITING_FEEDBACK',
+        lastMessageAt: now,
+        expiresAt: now + CONVERSATION_TTL_MS,
+        // A returning diner reuses one session row, so an earlier order's prompt state has to be
+        // cleared or the Worker would skip prompting them for this order.
+        feedbackPromptedAt: undefined,
+        feedbackPromptAttempts: undefined,
+        feedbackPromptLastAttemptAt: undefined,
+      })
     }
+  },
+})
+
+// Drained every minute by the Worker's scheduled handler. Convex owns *when* a session becomes
+// eligible (scheduled at serve time); the Worker owns delivery, because only it holds the Graph
+// API credentials.
+//
+// A session stays eligible until it has been delivered or has burnt every attempt, so a Graph API
+// outage delays a prompt rather than losing it.
+export const pendingFeedbackPrompts = queryGeneric({
+  args: { restaurantId: v.id('restaurants'), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const now = Date.now()
+    const sessions = await ctx.db
+      .query('sessions')
+      .withIndex('by_state', (query: any) => query.eq('state', 'AWAITING_FEEDBACK'))
+      .collect()
+    return sessions
+      .filter((session: any) => {
+        if (String(session.restaurantId) !== String(args.restaurantId)) return false
+        if (session.activeOrderId === undefined) return false
+        if (session.expiresAt <= now) return false
+        if (session.feedbackPromptedAt !== undefined) return false
+        if ((session.feedbackPromptAttempts ?? 0) >= MAX_FEEDBACK_PROMPT_ATTEMPTS) return false
+        const lastAttemptAt = session.feedbackPromptLastAttemptAt
+        return lastAttemptAt === undefined || lastAttemptAt + FEEDBACK_PROMPT_RETRY_MS <= now
+      })
+      .slice(0, args.limit ?? 50)
+      .map((session: any) => ({
+        phone: session.phone,
+        orderId: String(session.activeOrderId),
+        attempt: (session.feedbackPromptAttempts ?? 0) + 1,
+      }))
+  },
+})
+
+/**
+ * Reserves one delivery attempt. Called immediately *before* the Graph API request: the attempt is
+ * spent whether or not the send succeeds, which is what stops a persistently failing send from
+ * re-prompting a diner every minute forever.
+ *
+ * Re-checks eligibility rather than trusting the queued row, so two overlapping cron runs cannot
+ * both claim the same session.
+ */
+export const claimFeedbackPrompt = mutationGeneric({
+  args: { restaurantId: v.id('restaurants'), phone: v.string(), orderId: v.id('orders') },
+  handler: async (ctx, args) => {
+    const now = Date.now()
+    const session = await current(ctx, args.phone)
+    if (
+      !session ||
+      String(session.restaurantId) !== String(args.restaurantId) ||
+      String(session.activeOrderId) !== String(args.orderId) ||
+      session.state !== 'AWAITING_FEEDBACK' ||
+      session.feedbackPromptedAt !== undefined
+    ) {
+      return false
+    }
+    const attempts = session.feedbackPromptAttempts ?? 0
+    if (attempts >= MAX_FEEDBACK_PROMPT_ATTEMPTS) return false
+    const lastAttemptAt = session.feedbackPromptLastAttemptAt
+    if (lastAttemptAt !== undefined && lastAttemptAt + FEEDBACK_PROMPT_RETRY_MS > now) return false
+
+    await ctx.db.patch(session._id, {
+      feedbackPromptAttempts: attempts + 1,
+      feedbackPromptLastAttemptAt: now,
+    })
+    return true
+  },
+})
+
+/** Confirms delivery after the Graph API call succeeded, retiring the session from the queue. */
+export const confirmFeedbackPrompt = mutationGeneric({
+  args: { restaurantId: v.id('restaurants'), phone: v.string(), orderId: v.id('orders') },
+  handler: async (ctx, args) => {
+    const session = await current(ctx, args.phone)
+    if (
+      !session ||
+      String(session.restaurantId) !== String(args.restaurantId) ||
+      String(session.activeOrderId) !== String(args.orderId)
+    ) {
+      return false
+    }
+    await ctx.db.patch(session._id, { feedbackPromptedAt: Date.now() })
+    return true
   },
 })
 

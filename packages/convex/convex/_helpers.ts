@@ -6,6 +6,13 @@ export const PBKDF2_ITERATIONS = 120_000
 export const LOCKOUT_MS = 15 * 60 * 1000
 export const MAX_FAILED_ATTEMPTS = 5
 
+// Feedback prompt delivery. The Worker claims an attempt before calling the Graph API and confirms
+// after, so a crash mid-send still burns an attempt and cannot loop. Three attempts two minutes
+// apart bounds a diner's worst case at three prompts and finishes inside the 30-minute
+// CONVERSATION_TTL_MS window, well before closeFeedback fires at 40 minutes.
+export const MAX_FEEDBACK_PROMPT_ATTEMPTS = 3
+export const FEEDBACK_PROMPT_RETRY_MS = 2 * 60 * 1000
+
 export type StaffRole = 'owner' | 'manager' | 'counter' | 'waiter'
 export type ItemCategory = 'staple' | 'vegetable' | 'meat' | 'bread' | 'drink' | 'dessert' | 'side'
 

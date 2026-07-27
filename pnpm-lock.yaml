@@ -17,6 +17,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@heavenly/receipt':
+        specifier: workspace:*
+        version: link:../../packages/receipt
       '@heavenly/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -26,6 +29,9 @@ importers:
       hono:
         specifier: 4.12.31
         version: 4.12.31
+      pdf-lib:
+        specifier: 1.17.1
+        version: 1.17.1
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 5.20260722.1
@@ -42,6 +48,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@heavenly/receipt':
+        specifier: workspace:*
+        version: link:../../packages/receipt
       '@heavenly/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -121,6 +130,19 @@ importers:
       convex:
         specifier: 1.42.3
         version: 1.42.3(react@19.1.1)
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 4.0.18
+        version: 4.0.18(@types/node@24.10.1)(jiti@1.21.7)
+
+  packages/receipt:
+    dependencies:
+      pdf-lib:
+        specifier: 1.17.1
+        version: 1.17.1
     devDependencies:
       typescript:
         specifier: 5.9.3

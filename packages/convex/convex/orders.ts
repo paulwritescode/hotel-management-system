@@ -1,6 +1,15 @@
 import { internalMutationGeneric, makeFunctionReference, mutationGeneric, queryGeneric } from 'convex/server'
 import { v } from 'convex/values'
-import { assertPositiveInteger, cleanRequired, getActiveTable, logActivity, requireStaff, type OrderStatus } from './_helpers'
+import {
+  FEEDBACK_PROMPT_RETRY_MS,
+  MAX_FEEDBACK_PROMPT_ATTEMPTS,
+  assertPositiveInteger,
+  cleanRequired,
+  getActiveTable,
+  logActivity,
+  requireStaff,
+  type OrderStatus,
+} from './_helpers'
 import { assertOrderTransition, computeOrderTotal } from './_domain'
 
 const orderStatus = v.union(
@@ -98,7 +107,7 @@ export const placeFromSession = mutationGeneric({
       placedAt: now,
     })
     await ctx.db.patch(session._id, { activeOrderId: orderId, state: 'PLACED', cart: [], lastMessageAt: now, expiresAt: now + 30 * 60 * 1000 })
-    return { orderId, totalKes, lines: snapshots }
+    return { orderId, totalKes, lines: snapshots, reference }
   },
 })
 
@@ -257,6 +266,93 @@ export const recommendations = queryGeneric({
     const counts = new Map<string, number>()
     for (const order of recent) if (order.status !== 'cancelled') for (const line of order.lines) counts.set(String(line.itemId), (counts.get(String(line.itemId)) ?? 0) + line.quantity)
     return candidates.sort((a, b) => (counts.get(String(b._id)) ?? 0) - (counts.get(String(a._id)) ?? 0) || a.priceKes - b.priceKes).slice(0, 3)
+  },
+})
+
+// Order-summary delivery to the diner, drained every minute by the Worker. Same claim/confirm
+// contract as the feedback prompt: Convex decides eligibility, the Worker owns delivery, and an
+// attempt is spent before the Graph API call so a failing send cannot loop.
+const SUMMARY_LOOKBACK_MS = 24 * 60 * 60 * 1000
+
+export const pendingOrderSummaries = queryGeneric({
+  args: { restaurantId: v.id('restaurants'), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const now = Date.now()
+    const restaurant = await ctx.db.get(args.restaurantId)
+    const orders = await ctx.db
+      .query('orders')
+      .withIndex('by_restaurant_placedAt', (query: any) =>
+        query.eq('restaurantId', args.restaurantId).gte('placedAt', now - SUMMARY_LOOKBACK_MS),
+      )
+      .collect()
+    return orders
+      .filter((order: any) => {
+        if (!order.customerPhone) return false
+        // Verified by the counter — anything at or past `acknowledged`, but never a cancellation.
+        if (order.acknowledgedAt === undefined || order.status === 'cancelled') return false
+        if (order.summarySentAt !== undefined) return false
+        if ((order.summaryAttempts ?? 0) >= MAX_FEEDBACK_PROMPT_ATTEMPTS) return false
+        const lastAttemptAt = order.summaryLastAttemptAt
+        return lastAttemptAt === undefined || lastAttemptAt + FEEDBACK_PROMPT_RETRY_MS <= now
+      })
+      .slice(0, args.limit ?? 50)
+      .map((order: any) => ({
+        orderId: String(order._id),
+        phone: order.customerPhone as string,
+        reference: order.reference as string | undefined,
+        tableNumber: order.tableNumber as number,
+        customerName: order.customerName as string,
+        totalKes: order.totalKes as number,
+        placedAt: order.placedAt as number,
+        lines: (order.lines ?? []).map((line: any) => ({
+          nameSnapshot: line.nameSnapshot,
+          quantity: line.quantity,
+          priceKesSnapshot: line.priceKesSnapshot,
+        })),
+        payment: {
+          ...(restaurant?.acceptedPaymentMethods
+            ? { acceptedPaymentMethods: restaurant.acceptedPaymentMethods }
+            : {}),
+          ...(restaurant?.mpesaTillNumber ? { mpesaTillNumber: restaurant.mpesaTillNumber } : {}),
+        },
+      }))
+  },
+})
+
+export const claimOrderSummary = mutationGeneric({
+  args: { restaurantId: v.id('restaurants'), orderId: v.id('orders') },
+  handler: async (ctx, args) => {
+    const now = Date.now()
+    const order = await ctx.db.get(args.orderId)
+    if (
+      !order ||
+      String(order.restaurantId) !== String(args.restaurantId) ||
+      order.acknowledgedAt === undefined ||
+      order.status === 'cancelled' ||
+      order.summarySentAt !== undefined
+    ) {
+      return false
+    }
+    const attempts = order.summaryAttempts ?? 0
+    if (attempts >= MAX_FEEDBACK_PROMPT_ATTEMPTS) return false
+    const lastAttemptAt = order.summaryLastAttemptAt
+    if (lastAttemptAt !== undefined && lastAttemptAt + FEEDBACK_PROMPT_RETRY_MS > now) return false
+
+    await ctx.db.patch(args.orderId, {
+      summaryAttempts: attempts + 1,
+      summaryLastAttemptAt: now,
+    })
+    return true
+  },
+})
+
+export const confirmOrderSummary = mutationGeneric({
+  args: { restaurantId: v.id('restaurants'), orderId: v.id('orders') },
+  handler: async (ctx, args) => {
+    const order = await ctx.db.get(args.orderId)
+    if (!order || String(order.restaurantId) !== String(args.restaurantId)) return false
+    await ctx.db.patch(args.orderId, { summarySentAt: Date.now() })
+    return true
   },
 })
 
