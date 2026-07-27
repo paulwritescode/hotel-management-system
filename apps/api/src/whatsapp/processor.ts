@@ -2,7 +2,7 @@ import type { ItemCategory, MarketingConsent } from '@heavenly/types'
 import { createBotStore, type BotStore, type RecommendationConstraints } from '../convex'
 import type { RuntimeEnv } from '../env'
 import { phraseRecommendations } from '../llm/recommend'
-import { createWhatsAppClient, type WhatsAppSender } from './client'
+import { createWhatsAppClient, describeSendFailure, type WhatsAppSender } from './client'
 import { parseGlobalCommand } from './machine'
 import { parseWhatsAppPayload } from './payload'
 import {
@@ -146,7 +146,7 @@ async function resolveImageHeader(
       JSON.stringify({
         event: 'item_image_upload_failed',
         itemId: item.id,
-        error: error instanceof Error ? error.message : 'unknown error',
+        ...describeSendFailure(error),
       }),
     )
     return undefined
@@ -553,7 +553,7 @@ export async function processInboundMessages(
         JSON.stringify({
           event: 'whatsapp_message_failed',
           wamid: message.wamid,
-          error: error instanceof Error ? error.message : 'unknown error',
+          ...describeSendFailure(error),
         }),
       )
     }
@@ -634,7 +634,7 @@ export async function dispatchFeedbackPrompts(
           event: 'feedback_prompt_failed',
           orderId,
           attempt,
-          error: error instanceof Error ? error.message : 'unknown error',
+          ...describeSendFailure(error),
         }),
       )
     }
@@ -707,7 +707,7 @@ export async function dispatchOrderSummaries(
         JSON.stringify({
           event: 'order_summary_failed',
           orderId: order.orderId,
-          error: error instanceof Error ? error.message : 'unknown error',
+          ...describeSendFailure(error),
         }),
       )
     }
