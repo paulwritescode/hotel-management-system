@@ -41,10 +41,17 @@ export const submitWeb = mutationGeneric({
     if (existing) throw new Error('Feedback was already submitted')
     const comment = args.comment?.trim()
     if (comment && comment.length > 2000) throw new Error('Feedback comment is too long')
+    const table = await ctx.db.query('tables').withIndex('by_restaurant_number', (query) =>
+      query.eq('restaurantId', order.restaurantId),
+    ).filter((query) => query.eq(query.field('number'), order.tableNumber)).unique()
+    const waiterId = order.servedByStaffId ?? table?.assignedWaiterId
+    const waiter = waiterId ? await ctx.db.get(waiterId) : null
     const feedbackId = await ctx.db.insert('feedback', {
       restaurantId: args.restaurantId, orderId: args.orderId, rating: args.rating,
       comment: comment || undefined, itemIds: [...new Set(order.lines.map((line: { itemId: any }) => line.itemId))],
-      waiterId: order.servedByStaffId, createdAt: Date.now(),
+      ...(waiterId ? { waiterId } : {}),
+      ...(waiter?.name ? { waiterNameSnapshot: waiter.name } : {}),
+      createdAt: Date.now(),
     })
     return feedbackId
   },

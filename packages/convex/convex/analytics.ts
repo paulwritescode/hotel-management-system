@@ -70,18 +70,26 @@ export const dashboard = queryGeneric({
       itemRatings.set(key, aggregate)
     }
 
-    const waiterMap = new Map<string, { waiterId: string; ordersServed: number; serveTimes: number[]; ratings: number[] }>()
+    const waiterMap = new Map<string, { waiterId: string; ordersServed: number; serveTimes: number[]; ratings: number[]; feedback: Array<{ rating: number; comment?: string; orderReference: string; tableNumber: number; createdAt: number }> }>()
     for (const order of valid) if (order.servedByStaffId && order.servedAt) {
       const key = String(order.servedByStaffId)
-      const aggregate = waiterMap.get(key) ?? { waiterId: key, ordersServed: 0, serveTimes: [], ratings: [] }
+      const aggregate = waiterMap.get(key) ?? { waiterId: key, ordersServed: 0, serveTimes: [], ratings: [], feedback: [] }
       aggregate.ordersServed += 1
       if (order.acknowledgedAt) aggregate.serveTimes.push(order.servedAt - order.acknowledgedAt)
       waiterMap.set(key, aggregate)
     }
     for (const entry of recentFeedback) if (entry.waiterId) {
       const key = String(entry.waiterId)
-      const aggregate = waiterMap.get(key) ?? { waiterId: key, ordersServed: 0, serveTimes: [], ratings: [] }
+      const aggregate = waiterMap.get(key) ?? { waiterId: key, ordersServed: 0, serveTimes: [], ratings: [], feedback: [] }
       aggregate.ratings.push(entry.rating)
+      const feedbackOrder = valid.find((order) => String(order._id) === String(entry.orderId))
+      aggregate.feedback.push({
+        rating: entry.rating,
+        ...(entry.comment ? { comment: entry.comment } : {}),
+        orderReference: feedbackOrder?.reference ?? String(entry.orderId),
+        tableNumber: feedbackOrder?.tableNumber ?? 0,
+        createdAt: entry.createdAt,
+      })
       waiterMap.set(key, aggregate)
     }
     const tables = await ctx.db.query('tables').withIndex('by_restaurant_number', (query: any) => query.eq('restaurantId', args.restaurantId)).collect()
@@ -114,6 +122,7 @@ export const dashboard = queryGeneric({
         ratingCount: entry.ratings.length,
         meanRating: entry.ratings.length >= 5 ? entry.ratings.reduce((sum, rating) => sum + rating, 0) / entry.ratings.length : null,
         ratings: entry.ratings.length < 5 ? entry.ratings : undefined,
+        feedback: entry.feedback.sort((a, b) => b.createdAt - a.createdAt),
         tableNumbers: (tablesByWaiter.get(entry.waiterId) ?? []).sort((a, b) => a - b),
       }
     }))

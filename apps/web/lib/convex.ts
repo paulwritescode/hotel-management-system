@@ -104,7 +104,7 @@ export type AnalyticsDashboard = {
   lowestRatedItems: Array<{ itemId: string; name: string; ratingCount: number; meanRating: number | null; ratings?: number[]; comments: string[] }>
   ordersByHour: Array<{ hour: number; orders: number; revenueKes: number }>
   tables: Array<{ tableNumber: number; orders: number; revenueKes: number; medianTurnaroundMs: number | null }>
-  waiters: Array<{ waiterId: string; name: string; ordersServed: number; medianServeTimeMs: number | null; ratingCount: number; meanRating: number | null; ratings?: number[]; tableNumbers: number[] }>
+  waiters: Array<{ waiterId: string; name: string; ordersServed: number; medianServeTimeMs: number | null; ratingCount: number; meanRating: number | null; ratings?: number[]; feedback: Array<{ rating: number; comment?: string; orderReference: string; tableNumber: number; createdAt: number }>; tableNumbers: number[] }>
   offers: {
     activeItems: number
     offerOrders: number

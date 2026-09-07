@@ -269,6 +269,7 @@ export default defineSchema({
     comment: v.optional(v.string()),
     itemIds: v.array(v.id('items')),
     waiterId: v.optional(v.id('staff')),
+    waiterNameSnapshot: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index('by_restaurant', ['restaurantId'])

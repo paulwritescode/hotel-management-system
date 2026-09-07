@@ -287,6 +287,10 @@ export const transition = mutationGeneric({
       patch.servedByStaffId = staff._id
       patch.servedByName = staff.name
       patch.servedAt = now
+      const feedback = await ctx.db.query('feedback').withIndex('by_order', (query: any) => query.eq('orderId', order._id)).unique()
+      if (feedback && !feedback.waiterId) {
+        await ctx.db.patch(feedback._id, { waiterId: staff._id, waiterNameSnapshot: staff.name })
+      }
       if (order.customerPhone) {
         await ctx.scheduler.runAfter(FEEDBACK_PROMPT_DELAY_MS, feedbackRef, { phone: order.customerPhone, orderId: order._id })
         await ctx.scheduler.runAfter(FEEDBACK_PROMPT_DELAY_MS + FEEDBACK_WINDOW_MS, closeFeedbackRef, { phone: order.customerPhone, orderId: order._id })
