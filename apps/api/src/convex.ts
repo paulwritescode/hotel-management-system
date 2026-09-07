@@ -192,6 +192,7 @@ function mapItem(item: ConvexMenuItem): MenuItem {
     ...(item.description ? { description: item.description } : {}),
     category: item.category,
     priceKes: item.priceKes,
+    ...(item.offer ? { offer: item.offer } : {}),
     available: item.available,
     archived: item.archived,
     ...(item.quantityOnHand !== undefined ? { quantityOnHand: item.quantityOnHand } : {}),

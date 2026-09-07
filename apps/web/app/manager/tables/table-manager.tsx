@@ -31,23 +31,24 @@ export function TableManager() {
   const [staff, setStaff] = useState<Staff[]>(backend ? [] : demoStaff)
   const [editing, setEditing] = useState<DiningTable | 'new' | null>(null)
   const [removing, setRemoving] = useState<DiningTable | null>(null)
-  const [phone, setPhone] = useState(process.env.NEXT_PUBLIC_WHATSAPP_MSISDN ?? '')
   const [qrCodes, setQrCodes] = useState<Record<string, string>>({})
   useEffect(() => { if (liveTables) setTables(liveTables) }, [liveTables])
   useEffect(() => { if (liveStaff) setStaff(liveStaff) }, [liveStaff])
   useEffect(() => {
     let cancelled = false
     async function generate() {
-      const clean = phone.replace(/\D/gu, '')
-      if (!clean) { setQrCodes({}); return }
-      const pairs = await Promise.all(tables.filter((table) => table.active).map(async (table) => [table._id, await QRCode.toDataURL(`https://wa.me/${clean}?text=${encodeURIComponent(`Table ${table.number}`)}`, { width: 640, margin: 2, color: { dark: '#1d1d1f', light: '#ffffff' } })] as const))
+      const origin = window.location.origin
+      const pairs = await Promise.all(tables.filter((table) => table.active).map(async (table) => {
+        const url = new URL('/order', origin)
+        url.searchParams.set('table', String(table.number))
+        return [table._id, await QRCode.toDataURL(url.toString(), { width: 640, margin: 2, color: { dark: '#1d1d1f', light: '#ffffff' } })] as const
+      }))
       if (!cancelled) setQrCodes(Object.fromEntries(pairs))
     }
     void generate()
     return () => { cancelled = true }
-  }, [phone, tables])
+  }, [tables])
   const waiters = staff.filter((person) => person.role === 'waiter' && person.enabled)
-  const cleanPhone = phone.replace(/\D/gu, '')
   const activeWithCodes = tables.filter((table) => table.active && qrCodes[table._id])
 
   function waiterName(id?: string) {
@@ -122,17 +123,13 @@ export function TableManager() {
   const current = editing === 'new' ? undefined : editing ?? undefined
   return <DashboardShell section="Tables" actions={<><Button size="small" variant="outline" disabled={!activeWithCodes.length} onClick={() => window.print()}>Print QR sheet</Button><Button size="small" onClick={() => setEditing('new')}>Add table</Button></>}>
     <section className="page-section">
-      <div className="section-heading"><div><p className="caption">Dining room setup</p><h1>Tables and QR codes</h1><p className="muted">Every active table has a distinct WhatsApp entry point diners scan to start an order</p></div></div>
+      <div className="section-heading"><div><p className="caption">Dining room setup</p><h1>Tables and QR codes</h1><p className="muted">Every active table opens the live menu so diners can build and pay for an order</p></div></div>
 
       <Card className="tables-toolbar">
-        <div className="field">
-          <label htmlFor="whatsapp-number">WhatsApp number in international format</label>
-          <Input id="whatsapp-number" inputMode="numeric" placeholder="2547…" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/gu, ''))} aria-describedby="phone-help"/>
-          <span id="phone-help" className="fine-print muted">Required before QR codes generate. Each code opens WhatsApp pre-filled with “Table &lt;number&gt;”.</span>
-        </div>
+        <div className="field"><span className="caption-strong">Customer ordering page</span><span className="fine-print muted">QR codes point to this site’s menu and preserve the table number through checkout.</span></div>
         <div className="tables-toolbar-status">
           <span className="caption-strong">{tables.filter((table) => table.active).length} active</span>
-          <span className="fine-print muted">{cleanPhone ? `${activeWithCodes.length} QR codes ready` : 'Add a number to generate codes'}</span>
+          <span className="fine-print muted">{activeWithCodes.length} QR codes ready</span>
         </div>
       </Card>
 
@@ -146,7 +143,7 @@ export function TableManager() {
 
           <div className="table-qr">
             {code ? <img className="qr-image" src={code} alt={`QR code for table ${table.number}`} />
-              : <div className="table-qr-empty"><QrCode size={26} strokeWidth={1.6} /><span className="fine-print">{table.active ? 'Enter WhatsApp number' : 'Table inactive'}</span></div>}
+              : <div className="table-qr-empty"><QrCode size={26} strokeWidth={1.6} /><span className="fine-print">{table.active ? 'Generating menu QR' : 'Table inactive'}</span></div>}
           </div>
 
           <div className="table-meta">
@@ -171,7 +168,7 @@ export function TableManager() {
       })}</div>
     </section>
 
-    <section className="qr-sheet" aria-label="Printable QR code sheet">{activeWithCodes.map((table) => <article className="qr-print-card" key={table._id}><div><p className="caption">Heavenly Foods</p><h1>Table {table.number}</h1><img className="qr-image" src={qrCodes[table._id]} alt=""/><p>Scan to order on WhatsApp</p></div></article>)}</section>
+    <section className="qr-sheet" aria-label="Printable QR code sheet">{activeWithCodes.map((table) => <article className="qr-print-card" key={table._id}><div><img className="qr-print-logo" src="/logo-2.png" alt="Heavenly Foods" /><p className="caption">Scan to order</p><h1>Table {table.number}</h1><img className="qr-image" src={qrCodes[table._id]} alt={`QR code for table ${table.number}`} /><p>Scan this code to view our menu and order from your table.</p></div></article>)}</section>
 
     <Dialog open={Boolean(editing)} onClose={() => setEditing(null)} title={current ? 'Edit table' : 'Add table'}><form className="form-stack" onSubmit={save}><div className="field-grid"><div className="field"><label htmlFor="table-number">Table number</label><Input id="table-number" name="number" type="number" min="1" max="999" defaultValue={current?.number} required /></div><div className="field"><label htmlFor="table-seats">Seats</label><Input id="table-seats" name="seats" type="number" min="1" defaultValue={current?.seats} /></div></div><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setEditing(null)}>Discard</Button><Button type="submit">Save table</Button></div></form></Dialog>
     <Dialog open={Boolean(removing)} onClose={() => setRemoving(null)} title="Remove table" description="Only remove a table that is no longer part of the dining room"><p>Remove table <strong>{removing?.number}</strong>?</p><div className="form-actions"><Button variant="secondary" onClick={() => setRemoving(null)}>Keep table</Button><Button variant="danger" onClick={remove}>Remove table</Button></div></Dialog>

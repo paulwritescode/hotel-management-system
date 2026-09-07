@@ -11,5 +11,6 @@ export function Dialog({ open, title, description, children, onClose }: { open: 
     if (open && !dialog.open) dialog.showModal()
     if (!open && dialog.open) dialog.close()
   }, [open])
-  return <dialog ref={ref} className="dialog" onCancel={onClose} onClose={onClose} aria-labelledby="dialog-title"><div className="dialog-heading"><div><h2 id="dialog-title">{title}</h2>{description && <p className="muted">{description}</p>}</div><button className="icon-button" type="button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button></div>{children}</dialog>
+  const questionnaire = ['What name should we use?', 'Where should we bring it?', 'How can we reach you?'].includes(title)
+  return <dialog ref={ref} className={questionnaire ? 'dialog dialog-questionnaire' : 'dialog'} onCancel={onClose} onClose={onClose} aria-labelledby="dialog-title">{questionnaire && <p className="questionnaire-progress">Question 1 of 1</p>}<div className="dialog-heading"><div><h2 id="dialog-title">{title}</h2>{description && <p className="muted">{description}</p>}</div><button className="icon-button" type="button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button></div>{children}</dialog>
 }

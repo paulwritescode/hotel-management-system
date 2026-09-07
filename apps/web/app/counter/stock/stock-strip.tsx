@@ -81,24 +81,24 @@ export function StockStrip() {
     finally { setBusy(false) }
   }
 
-  return <DashboardShell role="counter" section="Stock">
+  return <DashboardShell role="counter" section="Menu items">
     <section className="page-section" aria-labelledby="stock-heading">
-      <div className="section-heading"><div><p className="caption">Live menu controls</p><h1 id="stock-heading">Stock strip</h1><p className="muted">Update availability and counts as batches come out of the kitchen. Prices are managed by managers.</p></div></div>
+      <div className="section-heading"><div><p className="caption">Live menu controls</p><h1 id="stock-heading">Menu availability</h1><p className="muted">Update menu availability and quantities as batches come out of the kitchen. Prices are managed by managers.</p></div></div>
       <div className="filter-bar"><Input type="search" placeholder="Search menu items" value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search menu items"/><Select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter by category"><option value="all">All categories</option>{categories.map((entry) => <option key={entry}>{entry}</option>)}</Select></div>
       {filtered.length === 0
         ? <div className="empty-state"><p className="muted">No matching menu items.</p></div>
         : <div className="stock-grid">{filtered.map((item) => <Card className="stock-card" key={item._id}>
-            <div className="stock-card-top"><div><div className="stock-card-title"><h3>{item.name}</h3>{!item.available && <span className="stock-flag">Unavailable</span>}</div><p className="caption muted">{item.category} · KES {item.priceKes.toLocaleString()}</p></div><Switch checked={item.available} onClick={() => toggleItem(item)} aria-label={`${item.available ? 'Make' : 'Mark'} ${item.name} ${item.available ? 'unavailable' : 'available'}`} /></div>
+            <div className="stock-card-top"><div><div className="stock-card-title"><h3>{item.name}</h3>{!item.available && <span className="stock-flag">Unavailable</span>}</div><p className="caption muted">{item.category} · {item.offer?.active ? <>WAS KES {item.offer.originalPriceKes.toLocaleString()} · NOW KES {item.offer.offerPriceKes.toLocaleString()}</> : <>KES {item.priceKes.toLocaleString()}</>} · {item.preparationMinutes ?? 20} min prep</p>{item.offer?.active && <p className="caption offer-copy">{item.offer.label}</p>}</div><Switch checked={item.available} onClick={() => toggleItem(item)} aria-label={`${item.available ? 'Make' : 'Mark'} ${item.name} ${item.available ? 'unavailable' : 'available'}`} /></div>
             <div className="stock-card-foot">
               {item.quantityOnHand === undefined
                 ? <span className="fine-print muted">Not tracked</span>
                 : <span className="stock-count"><strong>{item.quantityOnHand}</strong> <span className="fine-print muted">{item.unit ?? 'in stock'}</span></span>}
-              {item.quantityOnHand !== undefined && <Button size="small" variant="secondary" onClick={() => openRestock(item)}>Restock</Button>}
+              {item.quantityOnHand !== undefined && <Button size="small" variant="secondary" onClick={() => openRestock(item)}>Update quantity</Button>}
             </div>
           </Card>)}</div>}
     </section>
 
-    <Dialog open={Boolean(target)} onClose={() => { if (!busy) setTarget(null) }} title={target ? `Restock — ${target.name}` : 'Restock'} description={target ? `Currently: ${target.quantityOnHand ?? 0}` : ''}>
+    <Dialog open={Boolean(target)} onClose={() => { if (!busy) setTarget(null) }} title={target ? `Update menu quantity — ${target.name}` : 'Update menu quantity'} description={target ? `Currently: ${target.quantityOnHand ?? 0}` : ''}>
       <form className="form-stack" onSubmit={submitRestock}>
         <div className="field">
           <label htmlFor="restock-amount">{mode === 'add' ? 'Add' : 'Set to'}</label>
@@ -106,9 +106,9 @@ export function StockStrip() {
         </div>
         {preview !== null && <p className="restock-preview">{target?.quantityOnHand ?? 0} → <strong>{preview}</strong></p>}
         <button type="button" className="restock-mode-link" onClick={() => { setMode((current) => current === 'add' ? 'set' : 'add'); setAmount('') }}>
-          {mode === 'add' ? 'Set exact count instead' : 'Add to current count instead'}
+          {mode === 'add' ? 'Set exact quantity instead' : 'Add to current quantity instead'}
         </button>
-        <div className="form-actions"><Button type="button" variant="secondary" disabled={busy} onClick={() => setTarget(null)}>Cancel</Button><Button type="submit" disabled={busy}>{mode === 'add' ? 'Restock' : 'Set count'}</Button></div>
+        <div className="form-actions"><Button type="button" variant="secondary" disabled={busy} onClick={() => setTarget(null)}>Cancel</Button><Button type="submit" disabled={busy}>{mode === 'add' ? 'Add quantity' : 'Set quantity'}</Button></div>
       </form>
     </Dialog>
   </DashboardShell>

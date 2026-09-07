@@ -7,6 +7,7 @@ export type StaffSession = {
   convexToken: string
   name: string
   role: 'owner' | 'manager' | 'counter' | 'waiter'
+  counterLabel?: string
   exp: number
 }
 

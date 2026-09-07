@@ -1,4 +1,4 @@
-import type { ItemCategory, OrderStatus, StaffRole } from '@heavenly/types'
+import type { ItemCategory, OfferSchedule, OrderStatus, StaffRole } from '@heavenly/types'
 
 export type Id = string
 
@@ -9,6 +9,8 @@ export type Item = {
   description?: string
   category: ItemCategory
   priceKes: number
+  preparationMinutes?: number
+  offer?: { label: string; originalPriceKes: number; offerPriceKes: number; active: boolean; schedule?: OfferSchedule; startsAt?: number; endsAt?: number }
   available: boolean
   quantityOnHand?: number
   unit?: string
@@ -21,17 +23,25 @@ export type Item = {
   archived: boolean
 }
 
-export type OrderLine = { itemId: Id; nameSnapshot: string; priceKesSnapshot: number; quantity: number }
+export type OrderLine = { itemId: Id; nameSnapshot: string; priceKesSnapshot: number; quantity: number; offerLabelSnapshot?: string; originalPriceKesSnapshot?: number; discountKesSnapshot?: number }
 export type PaymentStatus = 'unpaid' | 'paid' | 'waived'
 export type PaymentMethod = 'cash' | 'mpesa' | 'card' | 'other'
 export type Order = {
   _id: Id
   tableNumber: number
-  source: 'whatsapp' | 'counter'
+  source: 'whatsapp' | 'counter' | 'web'
   customerName: string
   customerPhone?: string
+  receiptPreference?: 'whatsapp' | 'email'
+  receiptDestination?: string
+  paystackReference?: string
   lines: OrderLine[]
   totalKes: number
+  preparationMinutes?: number
+  preparationMinutesPrevious?: number
+  preparationMinutesUpdatedAt?: number
+  waiterPingAt?: number
+  waiterPingByName?: string
   reference?: string
   status: OrderStatus
   paymentStatus: PaymentStatus
@@ -57,7 +67,7 @@ export function orderReferenceShort(reference?: string): string | undefined {
   return reference?.split('-').at(-1)
 }
 
-export type Staff = { _id: Id; name: string; role: StaffRole; enabled: boolean }
+export type Staff = { _id: Id; name: string; role: StaffRole; counterLabel?: string; enabled: boolean }
 export type DiningTable = { _id: Id; number: number; seats?: number; assignedWaiterId?: Id; active: boolean }
 
 export const categories: ItemCategory[] = ['staple', 'vegetable', 'meat', 'bread', 'drink', 'dessert', 'side']

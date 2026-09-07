@@ -17,9 +17,6 @@ import { orderReferenceShort, paymentMethodLabels, paymentMethods, type Item, ty
 
 const nextStatus: Partial<Record<Order['status'], { status: Order['status']; label: string }>> = {
   pending: { status: 'acknowledged', label: 'Acknowledge' },
-  acknowledged: { status: 'preparing', label: 'Start preparing' },
-  preparing: { status: 'ready', label: 'Mark ready' },
-  ready: { status: 'served', label: 'Mark served' },
 }
 
 const statusLabels: Record<Order['status'], string> = {
@@ -31,13 +28,13 @@ const statusLabels: Record<Order['status'], string> = {
 // "served") show a count indicator; "All" and "Served" do not.
 type QueueTab = 'all' | 'unpaid' | Order['status']
 const queueTabs: Array<{ key: QueueTab; label: string; indicates: boolean }> = [
-  { key: 'all', label: 'All', indicates: false },
   { key: 'pending', label: 'New', indicates: true },
   { key: 'acknowledged', label: 'Acknowledged', indicates: true },
   { key: 'preparing', label: 'Preparing', indicates: true },
   { key: 'ready', label: 'Ready', indicates: true },
   { key: 'served', label: 'Served', indicates: false },
   { key: 'unpaid', label: 'Unpaid', indicates: true },
+  { key: 'all', label: 'All', indicates: false },
 ]
 
 // Addendum 04 §2.6 — served-and-unpaid past this many minutes carries a quiet text marker
@@ -118,7 +115,7 @@ export function CounterDashboard() {
   const [orders, setOrders] = useState<Order[]>(backend ? [] : demoOrders)
   const [items, setItems] = useState<Item[]>(backend ? [] : demoItems)
   const [now, setNow] = useState(Date.now())
-  const [tab, setTab] = useState<QueueTab>('all')
+  const [tab, setTab] = useState<QueueTab>('pending')
   const [dateWindow, setDateWindow] = useState<DateWindow>('today')
   const [search, setSearch] = useState('')
   const [manualOpen, setManualOpen] = useState(false)
@@ -155,7 +152,7 @@ export function CounterDashboard() {
   const counts = useMemo(() => {
     const map: Record<string, number> = { all: inWindow.length }
     for (const order of inWindow) map[order.status] = (map[order.status] ?? 0) + 1
-    map.unpaid = inWindow.filter((order) => (order.paymentStatus ?? 'unpaid') === 'unpaid').length
+    map.unpaid = inWindow.filter((order) => order.status === 'served' && (order.paymentStatus ?? 'unpaid') === 'unpaid').length
     return map
   }, [inWindow])
   const trimmedSearch = search.trim()
@@ -163,7 +160,7 @@ export function CounterDashboard() {
   const searchResults = useMemo(() => trimmedSearch ? inWindow.filter((order) => matchesReference(order, trimmedSearch)) : null, [inWindow, trimmedSearch])
   const visible = searchResults ?? (
     tab === 'all' ? inWindow
-      : tab === 'unpaid' ? inWindow.filter((order) => (order.paymentStatus ?? 'unpaid') === 'unpaid')
+      : tab === 'unpaid' ? inWindow.filter((order) => order.status === 'served' && (order.paymentStatus ?? 'unpaid') === 'unpaid')
         : inWindow.filter((order) => order.status === tab)
   )
 
@@ -260,7 +257,7 @@ export function CounterDashboard() {
     try {
       if (backend) await placeManual({ ...auth!, tableNumber, customerName, lines })
       else {
-        const orderLines = lines.map((line) => { const item = items.find((entry) => entry._id === line.itemId)!; return { itemId: item._id, nameSnapshot: item.name, priceKesSnapshot: item.priceKes, quantity: line.quantity } })
+        const orderLines = lines.map((line) => { const item = items.find((entry) => entry._id === line.itemId)!; const offer = item.offer?.active ? { offerLabelSnapshot: item.offer.label, originalPriceKesSnapshot: item.offer.originalPriceKes, discountKesSnapshot: item.offer.originalPriceKes - item.offer.offerPriceKes } : {}; return { itemId: item._id, nameSnapshot: item.name, priceKesSnapshot: item.offer?.active ? item.offer.offerPriceKes : item.priceKes, quantity: line.quantity, ...offer } })
         setOrders((current) => [{ _id: `manual-${Date.now()}`, tableNumber, customerName, source: 'counter', lines: orderLines, totalKes: orderLines.reduce((sum, line) => sum + line.priceKesSnapshot * line.quantity, 0), status: 'pending', paymentStatus: 'unpaid', placedAt: Date.now() }, ...current])
       }
       setSelected({}); setManualOpen(false); notify('Manual order added to the live queue')
@@ -309,7 +306,7 @@ export function CounterDashboard() {
         </div>
         <span className={`status-pill status-${order.status}`}>{statusLabels[order.status]}</span>
       </header>
-      <ul className="order-lines">{order.lines.map((line) => <li key={`${order._id}-${line.itemId}`}><strong>{line.quantity}×</strong> {line.nameSnapshot} <span className="muted">· KES {(line.priceKesSnapshot * line.quantity).toLocaleString()}</span></li>)}</ul>
+      <ul className="order-lines">{order.lines.map((line) => <li key={`${order._id}-${line.itemId}`}><strong>{line.quantity}×</strong> {line.nameSnapshot} <span className="muted">· {line.offerLabelSnapshot ? `WAS KES ${((line.originalPriceKesSnapshot ?? line.priceKesSnapshot) * line.quantity).toLocaleString()} · NOW ` : ''}KES {(line.priceKesSnapshot * line.quantity).toLocaleString()}</span></li>)}</ul>
       <footer className="order-card-foot">
         <div>
           <p className="order-total">KES {order.totalKes.toLocaleString()}</p>
@@ -348,7 +345,7 @@ export function CounterDashboard() {
       <div className="queue-tabs" role="tablist" aria-label="Filter orders by status">{queueTabs.map((entry) => {
         const count = counts[entry.key] ?? 0
         return <button key={entry.key} type="button" role="tab" aria-selected={tab === entry.key} className={tab === entry.key ? 'queue-tab queue-tab-active' : 'queue-tab'} onClick={() => { setTab(entry.key); setSearch('') }}>
-          <span>{entry.label}</span>
+          <span>{entry.key === 'unpaid' ? 'Served & unpaid' : entry.label}</span>
           {entry.indicates && count > 0 && <span className="queue-tab-count">{count}</span>}
           {!entry.indicates && count > 0 && <span className="queue-tab-count queue-tab-count-quiet">{count}</span>}
         </button>
@@ -401,7 +398,7 @@ export function CounterDashboard() {
 
     <OrderTimeline open={Boolean(timelineId)} onClose={() => setTimelineId(null)} data={timeline ?? undefined} loading={!timeline} />
 
-    <Dialog open={manualOpen} onClose={() => setManualOpen(false)} title="New counter order" description="Add a walk-up order to the same live queue"><form className="form-stack" onSubmit={submitManual}><div className="field-grid"><div className="field"><label htmlFor="manual-table">Table number</label><Input id="manual-table" name="tableNumber" type="number" min="1" max="999" required /></div><div className="field"><label htmlFor="manual-name">Customer name</label><Input id="manual-name" name="customerName" placeholder="Walk-up guest" /></div></div><div className="field"><span className="field-label">Items</span>{items.filter((item) => item.available && !item.archived).map((item) => <div className="mapping-row" key={item._id}><span>{item.name} · KES {item.priceKes.toLocaleString()}</span><Input aria-label={`${item.name} quantity`} type="number" min="0" max="99" value={selected[item._id] ?? 0} onChange={(event) => setSelected((current) => ({ ...current, [item._id]: Number(event.target.value) }))} /></div>)}</div><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setManualOpen(false)}>Keep browsing</Button><Button type="submit">Add order</Button></div></form></Dialog>
+    <Dialog open={manualOpen} onClose={() => setManualOpen(false)} title="New counter order" description="Add a walk-up order to the same live queue"><form className="form-stack" onSubmit={submitManual}><div className="field-grid"><div className="field"><label htmlFor="manual-table">Table number</label><Input id="manual-table" name="tableNumber" type="number" min="1" max="999" required /></div><div className="field"><label htmlFor="manual-name">Customer name</label><Input id="manual-name" name="customerName" placeholder="Walk-up guest" /></div></div><div className="field"><span className="field-label">Items</span>{items.filter((item) => item.available && !item.archived).map((item) => <div className="mapping-row" key={item._id}><span>{item.name} · {item.offer?.active ? <>WAS KES {item.offer.originalPriceKes.toLocaleString()} · NOW KES {item.offer.offerPriceKes.toLocaleString()}</> : <>KES {item.priceKes.toLocaleString()}</>}</span><Input aria-label={`${item.name} quantity`} type="number" min="0" max="99" value={selected[item._id] ?? 0} onChange={(event) => setSelected((current) => ({ ...current, [item._id]: Number(event.target.value) }))} /></div>)}</div><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setManualOpen(false)}>Keep browsing</Button><Button type="submit">Add order</Button></div></form></Dialog>
     <Dialog open={Boolean(cancelOrder)} onClose={() => setCancelOrder(null)} title="Cancel order" description="A reason and the signed-in staff member are recorded"><form className="form-stack" onSubmit={submitCancel}><div className="field"><label htmlFor="cancel-reason">Cancellation reason</label><Input id="cancel-reason" name="reason" minLength={3} required autoFocus /></div><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setCancelOrder(null)}>Keep order</Button><Button type="submit" variant="danger">Cancel order</Button></div></form></Dialog>
   </DashboardShell>
 }

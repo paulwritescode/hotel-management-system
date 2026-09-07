@@ -1,6 +1,7 @@
 import { actionGeneric, internalMutationGeneric, makeFunctionReference } from 'convex/server'
 import { v } from 'convex/values'
 import { hashPin } from './auth'
+import { menuCatalog } from './menu_catalog'
 
 type StaffRole = 'counter' | 'waiter' | 'manager'
 type ItemCategory = 'staple' | 'vegetable' | 'meat' | 'bread' | 'drink' | 'dessert' | 'side'
@@ -18,7 +19,7 @@ type CatalogItem = {
   creditUrl: string
 }
 
-const inventoryCatalog: CatalogItem[] = [
+const legacyInventoryCatalog: CatalogItem[] = [
   {
     name: 'Ugali', nameSwahili: 'Ugali', category: 'staple', priceKes: 120, unit: 'plate',
     description: 'Traditional Kenyan maize meal cooked until smooth and firm, served piping hot as the perfect accompaniment for stew, grilled meat or sautéed greens.',
@@ -80,6 +81,10 @@ const inventoryCatalog: CatalogItem[] = [
     imageUrl: 'https://images.unsplash.com/photo-1564093497595-593b96d80180?auto=format&fit=crop&w=1200&q=80', imageAlt: 'Colourful seasonal fruit salad', creditUrl: 'https://unsplash.com/s/photos/fruit-salad',
   },
 ]
+
+// The PDF-backed menu is the source for new seeds and enrichment. Keep the older catalog above
+// only as a migration reference for deployments that were seeded before the real menu was added.
+const inventoryCatalog = Array.from(new Map(menuCatalog.map((entry) => [entry.name, entry])).values())
 
 const applySeedRef = makeFunctionReference<'mutation', {
   restaurant: { name: string; phoneMsisdn: string }
@@ -180,7 +185,7 @@ export const applySeed = internalMutationGeneric({
     for (const item of inventoryCatalog) {
       await ctx.db.insert('items', {
         restaurantId, name: item.name, nameSwahili: item.nameSwahili, description: item.description,
-        category: item.category, priceKes: item.priceKes, unit: item.unit, available: true,
+        category: item.category, priceKes: item.priceKes, preparationMinutes: item.preparationMinutes, offer: item.offer, unit: item.unit, available: true,
         quantityOnHand: 30, externalImageUrl: item.imageUrl, imageAlt: item.imageAlt,
         imageCredit: 'Photo on Unsplash', imageCreditUrl: item.creditUrl,
         archived: false, createdAt: now, updatedAt: now,
@@ -205,16 +210,28 @@ export const applyEnrichment = internalMutationGeneric({
     const items = await ctx.db.query('items').withIndex('by_restaurant', (query: any) => query.eq('restaurantId', args.restaurantId)).collect()
     const itemsByName = new Map(items.map((item) => [item.name.toLocaleLowerCase(), item]))
     let itemsUpdated = 0
+    let itemsAdded = 0
+    const actualNames = new Set(inventoryCatalog.map((entry) => entry.name.toLocaleLowerCase()))
     for (const catalogItem of inventoryCatalog) {
       const item = itemsByName.get(catalogItem.name.toLocaleLowerCase())
-      if (!item) continue
-      await ctx.db.patch(item._id, {
-        nameSwahili: catalogItem.nameSwahili, description: catalogItem.description,
-        externalImageUrl: catalogItem.imageUrl, imageAlt: catalogItem.imageAlt,
-        imageCredit: 'Photo on Unsplash', imageCreditUrl: catalogItem.creditUrl,
-        updatedAt: now,
-      })
-      itemsUpdated += 1
+      const itemData: Record<string, unknown> = {
+        name: catalogItem.name, description: catalogItem.description, priceKes: catalogItem.priceKes,
+        preparationMinutes: catalogItem.preparationMinutes, offer: catalogItem.offer, available: true,
+        archived: false, updatedAt: now,
+      }
+      if (item) {
+        await ctx.db.patch(item._id, itemData)
+        itemsUpdated += 1
+      } else {
+        await ctx.db.insert('items', { restaurantId: args.restaurantId, ...itemData, quantityOnHand: 30, unit: 'plate', createdAt: now })
+        itemsAdded += 1
+      }
+    }
+    // Existing demo-only items disappear from the active menu without deleting historical order references.
+    for (const existing of items) {
+      if (!actualNames.has(existing.name.toLocaleLowerCase()) && !existing.archived) {
+        await ctx.db.patch(existing._id, { archived: true, available: false, updatedAt: now })
+      }
     }
 
     const refreshedItems = await ctx.db.query('items').withIndex('by_restaurant', (query: any) => query.eq('restaurantId', args.restaurantId)).collect()
@@ -238,18 +255,18 @@ export const applyEnrichment = internalMutationGeneric({
     let ordersAdded = 0
     if (orders.length === 0) {
       const specs: Array<{ table: number; source: 'whatsapp' | 'counter'; customer: string; phone?: string; status: OrderStatus; minutesAgo: number; lines: Array<[string, number]>; cancellationReason?: string }> = [
-        { table: 1, source: 'whatsapp', customer: 'Wanjiru Kamau', phone: '+254711000101', status: 'pending', minutesAgo: 7, lines: [['Pilau', 2], ['Fresh Passion Juice', 1]] },
-        { table: 2, source: 'counter', customer: 'Walk-in guest', status: 'acknowledged', minutesAgo: 14, lines: [['Ugali', 2], ['Beef Stew', 2], ['Sukuma Wiki', 1]] },
-        { table: 3, source: 'whatsapp', customer: 'Brian Ouma', phone: '+254711000103', status: 'preparing', minutesAgo: 24, lines: [['Grilled Chicken', 2], ['Masala Chips', 2]] },
-        { table: 4, source: 'counter', customer: 'Faith Njeri', status: 'ready', minutesAgo: 31, lines: [['Nyama Choma', 1], ['Kachumbari', 2], ['Ugali', 2]] },
-        { table: 5, source: 'whatsapp', customer: 'Ali Hassan', phone: '+254711000105', status: 'served', minutesAgo: 52, lines: [['Pilau', 1], ['Kenyan Tea', 2]] },
-        { table: 6, source: 'whatsapp', customer: 'Mercy Atieno', phone: '+254711000106', status: 'closed', minutesAgo: 95, lines: [['Chapati', 3], ['Beef Stew', 1], ['Fruit Salad', 1]] },
-        { table: 7, source: 'counter', customer: 'John Mwangi', status: 'closed', minutesAgo: 180, lines: [['Grilled Chicken', 1], ['Sukuma Wiki', 1], ['Fresh Passion Juice', 2]] },
-        { table: 8, source: 'whatsapp', customer: 'Zawadi Muli', phone: '+254711000108', status: 'cancelled', minutesAgo: 43, lines: [['Masala Chips', 1], ['Kenyan Tea', 1]], cancellationReason: 'Guest changed plans before preparation' },
-        { table: 9, source: 'whatsapp', customer: 'Peter Kiptoo', phone: '+254711000109', status: 'closed', minutesAgo: 1440, lines: [['Nyama Choma', 2], ['Kachumbari', 2], ['Ugali', 3]] },
-        { table: 10, source: 'counter', customer: 'Office lunch', status: 'closed', minutesAgo: 2880, lines: [['Pilau', 5], ['Grilled Chicken', 3], ['Fresh Passion Juice', 4]] },
-        { table: 11, source: 'whatsapp', customer: 'Esther Chebet', phone: '+254711000111', status: 'closed', minutesAgo: 4320, lines: [['Chapati', 2], ['Beef Stew', 1], ['Kenyan Tea', 1]] },
-        { table: 12, source: 'counter', customer: 'Family table', status: 'closed', minutesAgo: 7200, lines: [['Ugali', 4], ['Nyama Choma', 2], ['Sukuma Wiki', 2], ['Fruit Salad', 3]] },
+        { table: 1, source: 'whatsapp', customer: 'Wanjiru Kamau', phone: '+254711000101', status: 'pending', minutesAgo: 7, lines: [['Pilau served with Vegetables', 2], ['Passion Juice', 1]] },
+        { table: 2, source: 'counter', customer: 'Walk-in guest', status: 'acknowledged', minutesAgo: 14, lines: [['Ugali', 2], ['Beef Stew + Ugali', 2], ['Spinach', 1]] },
+        { table: 3, source: 'whatsapp', customer: 'Brian Ouma', phone: '+254711000103', status: 'preparing', minutesAgo: 24, lines: [['Roast Chicken + French Fries', 2], ['Masala Fries', 2]] },
+        { table: 4, source: 'counter', customer: 'Faith Njeri', status: 'ready', minutesAgo: 31, lines: [['Nyama Choma Platter 2', 1], ['Coleslaw/Kachumbari', 2], ['Ugali', 2]] },
+        { table: 5, source: 'whatsapp', customer: 'Ali Hassan', phone: '+254711000105', status: 'served', minutesAgo: 52, lines: [['Pilau served with Vegetables', 1], ['Milked Tea', 2]] },
+        { table: 6, source: 'whatsapp', customer: 'Mercy Atieno', phone: '+254711000106', status: 'closed', minutesAgo: 95, lines: [['Chapati', 3], ['Beef Stew + Ugali', 1], ['Mixed Fruit Smoothie', 1]] },
+        { table: 7, source: 'counter', customer: 'John Mwangi', status: 'closed', minutesAgo: 180, lines: [['Roast Chicken + French Fries', 1], ['Spinach', 1], ['Passion Juice', 2]] },
+        { table: 8, source: 'whatsapp', customer: 'Zawadi Muli', phone: '+254711000108', status: 'cancelled', minutesAgo: 43, lines: [['Masala Fries', 1], ['Milked Tea', 1]], cancellationReason: 'Guest changed plans before preparation' },
+        { table: 9, source: 'whatsapp', customer: 'Peter Kiptoo', phone: '+254711000109', status: 'closed', minutesAgo: 1440, lines: [['Nyama Choma Platter 2', 2], ['Coleslaw/Kachumbari', 2], ['Ugali', 3]] },
+        { table: 10, source: 'counter', customer: 'Office lunch', status: 'closed', minutesAgo: 2880, lines: [['Pilau served with Vegetables', 5], ['Roast Chicken + French Fries', 3], ['Passion Juice', 4]] },
+        { table: 11, source: 'whatsapp', customer: 'Esther Chebet', phone: '+254711000111', status: 'closed', minutesAgo: 4320, lines: [['Chapati', 2], ['Beef Stew + Ugali', 1], ['Milked Tea', 1]] },
+        { table: 12, source: 'counter', customer: 'Family table', status: 'closed', minutesAgo: 7200, lines: [['Ugali', 4], ['Nyama Choma Platter 2', 2], ['Spinach', 2], ['Mixed Fruit Smoothie', 3]] },
       ]
       const created: any[] = []
       for (const spec of specs) {
@@ -341,7 +358,7 @@ export const applyEnrichment = internalMutationGeneric({
       }
     }
 
-    return { itemsUpdated, tablesAdded, ordersAdded, sessionsAdded, messagesAdded, feedbackAdded }
+    return { itemsUpdated, itemsAdded, tablesAdded, ordersAdded, sessionsAdded, messagesAdded, feedbackAdded }
   },
 })
 

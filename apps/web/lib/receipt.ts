@@ -55,3 +55,22 @@ export async function downloadOrderSummary(order: Order, payment?: ReceiptPaymen
   link.remove()
   URL.revokeObjectURL(url)
 }
+
+export async function downloadPaymentReceipt(order: Order, paymentReference?: string): Promise<void> {
+  const [logoPng, paidStampPng, monoTtf, monoBoldTtf] = await Promise.all([
+    fetchBytes('/logo-2.png'), fetchBytes('/paid-stamp.png'),
+    fetchBytes('/fonts/JetBrainsMono-Regular.ttf'), fetchBytes('/fonts/JetBrainsMono-Bold.ttf'),
+  ])
+  const resolvedPaymentReference = paymentReference ?? order.paystackReference
+  const bytes = await buildSharedOrderSummaryPdf({ ...order, ...(resolvedPaymentReference ? { paymentReference: resolvedPaymentReference } : {}) }, undefined, {
+    fontkit,
+    ...(logoPng ? { logoPng } : {}), ...(paidStampPng ? { paidStampPng } : {}),
+    ...(monoTtf ? { monoTtf } : {}), ...(monoBoldTtf ? { monoBoldTtf } : {}),
+    ...(CONTACT ? { contact: CONTACT } : {}),
+  }, 'payment')
+  const blob = new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url; link.download = `heavenly-foods-payment-${order.reference ?? order._id}.pdf`
+  document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url)
+}

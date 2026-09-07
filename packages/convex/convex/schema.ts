@@ -30,6 +30,16 @@ export default defineSchema({
       v.literal('side'),
     ),
     priceKes: v.number(),
+    preparationMinutes: v.optional(v.number()),
+    offer: v.optional(v.object({
+      label: v.string(),
+      originalPriceKes: v.number(),
+      offerPriceKes: v.number(),
+      active: v.boolean(),
+      schedule: v.optional(v.union(v.literal('daily'), v.literal('weekly'), v.literal('black_friday'), v.literal('date_range'))),
+      startsAt: v.optional(v.number()),
+      endsAt: v.optional(v.number()),
+    })),
     available: v.boolean(),
     quantityOnHand: v.optional(v.number()),
     unit: v.optional(v.string()),
@@ -69,6 +79,7 @@ export default defineSchema({
     restaurantId: v.id('restaurants'),
     name: v.string(),
     role: v.union(v.literal('owner'), v.literal('manager'), v.literal('counter'), v.literal('waiter')),
+    counterLabel: v.optional(v.string()),
     pinHash: v.string(),
     pinSalt: v.string(),
     enabled: v.boolean(),
@@ -80,16 +91,29 @@ export default defineSchema({
   orders: defineTable({
     restaurantId: v.id('restaurants'),
     tableNumber: v.number(),
-    source: v.union(v.literal('whatsapp'), v.literal('counter')),
+    source: v.union(v.literal('whatsapp'), v.literal('counter'), v.literal('web')),
     customerName: v.string(),
     customerPhone: v.optional(v.string()),
+    receiptPreference: v.optional(v.union(v.literal('whatsapp'), v.literal('email'))),
+    receiptDestination: v.optional(v.string()),
+    paystackReference: v.optional(v.string()),
     lines: v.array(v.object({
       itemId: v.id('items'),
       nameSnapshot: v.string(),
       priceKesSnapshot: v.number(),
       quantity: v.number(),
+      // Optional snapshots preserve offer attribution on orders placed before offer tracking was
+      // introduced while making every new order auditable and reportable.
+      offerLabelSnapshot: v.optional(v.string()),
+      originalPriceKesSnapshot: v.optional(v.number()),
+      discountKesSnapshot: v.optional(v.number()),
     })),
     totalKes: v.number(),
+    preparationMinutes: v.optional(v.number()),
+    preparationMinutesPrevious: v.optional(v.number()),
+    preparationMinutesUpdatedAt: v.optional(v.number()),
+    waiterPingAt: v.optional(v.number()),
+    waiterPingByName: v.optional(v.string()),
     reference: v.optional(v.string()),
     receiptSentAt: v.optional(v.number()),
     status: v.union(
@@ -156,13 +180,20 @@ export default defineSchema({
 
   activityLog: defineTable({
     restaurantId: v.id('restaurants'),
-    actorStaffId: v.id('staff'),
+    actorStaffId: v.optional(v.id('staff')),
     actorName: v.string(),
-    actorRole: v.union(v.literal('owner'), v.literal('manager'), v.literal('counter'), v.literal('waiter')),
+    actorRole: v.union(v.literal('owner'), v.literal('manager'), v.literal('counter'), v.literal('waiter'), v.literal('system')),
     action: v.string(),
     detail: v.optional(v.string()),
     at: v.number(),
   }).index('by_restaurant_at', ['restaurantId', 'at']),
+
+  staffShifts: defineTable({
+    restaurantId: v.id('restaurants'), staffId: v.id('staff'), staffName: v.string(),
+    staffRole: v.union(v.literal('owner'), v.literal('manager'), v.literal('counter'), v.literal('waiter')),
+    clockInAt: v.number(), clockOutAt: v.optional(v.number()),
+    clockedInByStaffId: v.id('staff'), clockedOutByStaffId: v.optional(v.id('staff')),
+  }).index('by_restaurant_clockin', ['restaurantId', 'clockInAt']).index('by_staff_clockin', ['staffId', 'clockInAt']),
 
   stockLedger: defineTable({
     restaurantId: v.id('restaurants'),

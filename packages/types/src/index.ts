@@ -17,6 +17,7 @@ export type OrderStatus =
   | 'cancelled'
 
 export type StaffRole = 'owner' | 'manager' | 'counter' | 'waiter'
+export type OfferSchedule = 'daily' | 'weekly' | 'black_friday' | 'date_range'
 export type MarketingConsent = 'granted' | 'denied' | 'unasked'
 
 export type SessionState =
@@ -39,6 +40,7 @@ export type ParsedInventoryRow = {
   description?: string
   category?: ItemCategory
   priceKes?: number
+  preparationMinutes?: number
   available?: boolean
   quantityOnHand?: number
   unit?: string

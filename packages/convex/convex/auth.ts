@@ -114,7 +114,7 @@ export const signIn = actionGeneric({
       token,
       expiresAt,
       restaurantId: staff.restaurantId,
-      staff: { id: staff._id, name: staff.name, role: staff.role },
+      staff: { id: staff._id, name: staff.name, role: staff.role, ...(staff.counterLabel ? { counterLabel: staff.counterLabel } : {}) },
     }
   },
 })
@@ -140,6 +140,6 @@ export const login = actionGeneric({
       role: staff.role,
       exp: expiresAt,
     })
-    return { token, expiresAt, staff: { id: staff._id, name: staff.name, role: staff.role } }
+    return { token, expiresAt, staff: { id: staff._id, name: staff.name, role: staff.role, ...(staff.counterLabel ? { counterLabel: staff.counterLabel } : {}) } }
   },
 })

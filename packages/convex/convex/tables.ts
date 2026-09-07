@@ -10,6 +10,18 @@ export const list = queryGeneric({
   },
 })
 
+// Public table selector for the customer ordering page. Only active table numbers are exposed;
+// staff assignments and other operational details remain private to the authenticated dashboard.
+export const publicActive = queryGeneric({
+  args: { restaurantId: v.id('restaurants') },
+  handler: async (ctx, args) => {
+    const tables = await ctx.db.query('tables').withIndex('by_restaurant_number', (query: any) =>
+      query.eq('restaurantId', args.restaurantId),
+    ).collect()
+    return tables.filter((table: any) => table.active).map((table: any) => table.number).sort((a: number, b: number) => a - b)
+  },
+})
+
 export const create = mutationGeneric({
   args: { token: v.string(), restaurantId: v.id('restaurants'), number: v.number(), seats: v.optional(v.number()) },
   handler: async (ctx, args) => {

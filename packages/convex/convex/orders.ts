@@ -13,19 +13,22 @@ import {
   type OrderStatus,
 } from './_helpers'
 import { assertOrderTransition, computeOrderTotal } from './_domain'
+import { isOfferLive } from './items'
 
 const orderStatus = v.union(
   v.literal('pending'), v.literal('acknowledged'), v.literal('preparing'),
   v.literal('ready'), v.literal('served'), v.literal('closed'), v.literal('cancelled'),
 )
 const cartLine = v.object({ itemId: v.id('items'), quantity: v.number() })
+const receiptPreference = v.union(v.literal('whatsapp'), v.literal('email'))
 const feedbackRef = makeFunctionReference<'mutation', { phone: string; orderId: string }, unknown>('sessions:markAwaitingFeedback')
 const closeFeedbackRef = makeFunctionReference<'mutation', { phone: string; orderId: string }, unknown>('sessions:closeFeedback')
 
 async function snapshotLines(ctx: any, restaurantId: string, lines: Array<{ itemId: string; quantity: number }>) {
   if (lines.length === 0 || lines.length > 100) throw new Error('Order must contain 1 to 100 lines')
   const seen = new Set<string>()
-  const snapshots: Array<{ itemId: any; nameSnapshot: string; priceKesSnapshot: number; quantity: number }> = []
+  const snapshots: Array<{ itemId: any; nameSnapshot: string; priceKesSnapshot: number; quantity: number; offerLabelSnapshot?: string; originalPriceKesSnapshot?: number; discountKesSnapshot?: number }> = []
+  let preparationMinutes = 0
   for (const line of lines) {
     assertPositiveInteger(line.quantity, 'quantity')
     if (seen.has(String(line.itemId))) throw new Error('Duplicate item lines are not allowed')
@@ -38,9 +41,15 @@ async function snapshotLines(ctx: any, restaurantId: string, lines: Array<{ item
     if (item.quantityOnHand !== undefined && item.quantityOnHand < line.quantity) {
       throw new Error(`${item.name} just ran out; only ${item.quantityOnHand} remain`)
     }
-    snapshots.push({ itemId: item._id, nameSnapshot: item.name, priceKesSnapshot: item.priceKes, quantity: line.quantity })
+    const offerLive = isOfferLive(item.offer)
+    const priceKes = offerLive ? item.offer.offerPriceKes : item.priceKes
+    const offerSnapshot = offerLive
+      ? { offerLabelSnapshot: item.offer.label, originalPriceKesSnapshot: item.offer.originalPriceKes, discountKesSnapshot: item.offer.originalPriceKes - item.offer.offerPriceKes }
+      : {}
+    preparationMinutes = Math.max(preparationMinutes, item.preparationMinutes ?? 20)
+    snapshots.push({ itemId: item._id, nameSnapshot: item.name, priceKesSnapshot: priceKes, quantity: line.quantity, ...offerSnapshot })
   }
-  return { snapshots, totalKes: computeOrderTotal(snapshots) }
+  return { snapshots, totalKes: computeOrderTotal(snapshots), preparationMinutes }
 }
 
 const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1000
@@ -92,7 +101,7 @@ export const placeFromSession = mutationGeneric({
     if (session.state !== 'AWAITING_CONSENT') throw new Error('Order is not ready for placement')
     if (!session.tableNumber || !session.customerName) throw new Error('Table and customer name are required')
     await getActiveTable(ctx.db, String(args.restaurantId), session.tableNumber)
-    const { snapshots, totalKes } = await snapshotLines(ctx, String(args.restaurantId), session.cart)
+    const { snapshots, totalKes, preparationMinutes } = await snapshotLines(ctx, String(args.restaurantId), session.cart)
     await decrementStock(ctx, snapshots)
     const reference = await nextOrderReference(ctx, String(args.restaurantId), now)
     const orderId = await ctx.db.insert('orders', {
@@ -103,6 +112,7 @@ export const placeFromSession = mutationGeneric({
       customerPhone: session.phone,
       lines: snapshots,
       totalKes,
+      preparationMinutes,
       reference,
       status: 'pending',
       paymentStatus: 'unpaid',
@@ -121,7 +131,7 @@ export const placeManual = mutationGeneric({
   handler: async (ctx, args) => {
     const staff = await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(args.restaurantId))
     await getActiveTable(ctx.db, String(args.restaurantId), args.tableNumber)
-    const { snapshots, totalKes } = await snapshotLines(ctx, String(args.restaurantId), args.lines)
+    const { snapshots, totalKes, preparationMinutes } = await snapshotLines(ctx, String(args.restaurantId), args.lines)
     await decrementStock(ctx, snapshots)
     const customerPhone = args.customerPhone?.trim()
     if (customerPhone && !/^\+[1-9]\d{7,14}$/.test(customerPhone)) throw new Error('customerPhone must be E.164')
@@ -135,13 +145,76 @@ export const placeManual = mutationGeneric({
       customerPhone: customerPhone || undefined,
       lines: snapshots,
       totalKes,
+      preparationMinutes,
       reference,
       status: 'pending',
       paymentStatus: 'unpaid',
       placedAt: now,
     })
-    await logActivity(ctx.db, staff, 'order_create', `Created order #${reference.split('-').at(-1)} for table ${args.tableNumber}`)
+    const offerLines = snapshots.filter((line) => line.offerLabelSnapshot)
+    await logActivity(ctx.db, staff, 'order_create', `Created order #${reference.split('-').at(-1)} for table ${args.tableNumber}${offerLines.length ? ` · ${offerLines.length} offer item${offerLines.length === 1 ? '' : 's'} applied` : ''}`)
     return { orderId, totalKes, reference, lines: snapshots }
+  },
+})
+
+// Public customer ordering entry point used by table QR codes. It deliberately accepts only a
+// table number and item ids; the server re-checks the active table, availability, offer price and
+// stock before creating the order.
+export const placeCustomer = mutationGeneric({
+  args: {
+    restaurantId: v.id('restaurants'), tableNumber: v.number(), customerName: v.string(), customerPhone: v.optional(v.string()),
+    receiptPreference: v.optional(receiptPreference), receiptDestination: v.optional(v.string()), lines: v.array(cartLine),
+  },
+  handler: async (ctx, args) => {
+    await getActiveTable(ctx.db, String(args.restaurantId), args.tableNumber)
+    const destination = args.receiptDestination ? cleanRequired(args.receiptDestination, 'receiptDestination', 160) : undefined
+    if (args.receiptPreference === 'email' && (!destination || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(destination))) throw new Error('Enter a valid receipt email')
+    if (args.customerPhone !== undefined && !/^\+[1-9]\d{7,14}$/u.test(args.customerPhone)) throw new Error('Use WhatsApp number in international format, for example +2547…')
+    const { snapshots, totalKes, preparationMinutes } = await snapshotLines(ctx, String(args.restaurantId), args.lines)
+    await decrementStock(ctx, snapshots)
+    const now = Date.now()
+    const reference = await nextOrderReference(ctx, String(args.restaurantId), now)
+    const orderId = await ctx.db.insert('orders', {
+      restaurantId: args.restaurantId, tableNumber: args.tableNumber, source: 'web',
+      customerName: cleanRequired(args.customerName, 'customerName', 80),
+      customerPhone: args.customerPhone,
+      receiptPreference: args.receiptPreference, receiptDestination: destination,
+      lines: snapshots, totalKes, preparationMinutes, reference, status: 'pending', paymentStatus: 'unpaid', placedAt: now,
+    })
+    return { orderId, totalKes, reference, lines: snapshots }
+  },
+})
+
+export const paymentDetails = queryGeneric({
+  args: { orderId: v.id('orders') },
+  handler: async (ctx, args) => {
+    const order = await ctx.db.get(args.orderId)
+    if (!order || order.source !== 'web') throw new Error('Customer order not found')
+    return {
+      orderId: order._id, restaurantId: order.restaurantId, reference: order.reference, totalKes: order.totalKes,
+      tableNumber: order.tableNumber, customerName: order.customerName, lines: order.lines,
+      preparationMinutes: order.preparationMinutes,
+      placedAt: order.placedAt, paymentStatus: order.paymentStatus, paidAt: order.paidAt,
+      paystackReference: order.paystackReference, receiptPreference: order.receiptPreference,
+      receiptDestination: order.receiptDestination,
+    }
+  },
+})
+
+export const recordPaystackPayment = mutationGeneric({
+  args: { orderId: v.id('orders'), reference: v.string(), amountKes: v.number() },
+  handler: async (ctx, args) => {
+    const order = await ctx.db.get(args.orderId)
+    if (!order || order.source !== 'web' || order.reference !== args.reference || order.totalKes !== args.amountKes) throw new Error('Payment does not match this order')
+    if (order.paymentStatus === 'paid') return order._id
+    const paidAt = Date.now()
+    await ctx.db.patch(order._id, { paymentStatus: 'paid', paymentMethod: 'card', paidAt, paystackReference: args.reference })
+    const offerLines = order.lines.filter((line: any) => line.offerLabelSnapshot)
+    if (offerLines.length) {
+      const offerSummary = offerLines.map((line: any) => `${line.quantity}× ${line.nameSnapshot} · ${line.offerLabelSnapshot} · WAS KES ${line.originalPriceKesSnapshot} · NOW KES ${line.priceKesSnapshot}`).join('; ')
+      await ctx.db.insert('activityLog', { restaurantId: order.restaurantId, actorName: 'Customer order', actorRole: 'system', action: 'offer_sale', detail: `Paid offer sale on order ${order.reference ?? order._id} · ${offerSummary}`, at: paidAt })
+    }
+    return order._id
   },
 })
 
@@ -156,6 +229,37 @@ export const live = queryGeneric({
       ).order('desc').take(100),
     ))
     return groups.flat().sort((left, right) => right.placedAt - left.placedAt).slice(0, 100)
+  },
+})
+
+export const setPreparationMinutes = mutationGeneric({
+  args: { token: v.string(), orderId: v.id('orders'), preparationMinutes: v.number() },
+  handler: async (ctx, args) => {
+    const order = await ctx.db.get(args.orderId)
+    if (!order) throw new Error('Order not found')
+    const staff = await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(order.restaurantId))
+    if (!['pending', 'acknowledged', 'preparing'].includes(order.status)) throw new Error('Preparation time can only be changed before an order is ready')
+    if (!Number.isSafeInteger(args.preparationMinutes) || args.preparationMinutes < 1 || args.preparationMinutes > 240) throw new Error('Preparation time must be 1 to 240 minutes')
+    const previousMinutes = order.preparationMinutes ?? 20
+    const changedByMinutes = args.preparationMinutes - previousMinutes
+    const now = Date.now()
+    await ctx.db.patch(args.orderId, { preparationMinutes: args.preparationMinutes, preparationMinutesPrevious: previousMinutes, preparationMinutesUpdatedAt: now })
+    await logActivity(ctx.db, staff, 'order_prep_time', `Updated order #${order.reference?.split('-').at(-1) ?? order.tableNumber} preparation time from ${previousMinutes} to ${args.preparationMinutes} minutes${changedByMinutes > 0 ? ` · waiter notified of ${changedByMinutes} extra minute${changedByMinutes === 1 ? '' : 's'}` : ''}`)
+    return args.orderId
+  },
+})
+
+export const pingWaiter = mutationGeneric({
+  args: { token: v.string(), orderId: v.id('orders') },
+  handler: async (ctx, args) => {
+    const order = await ctx.db.get(args.orderId)
+    if (!order) throw new Error('Order not found')
+    const staff = await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(order.restaurantId))
+    if (order.status !== 'ready') throw new Error('Only ready orders can ping the waiter')
+    const now = Date.now()
+    await ctx.db.patch(args.orderId, { waiterPingAt: now, waiterPingByName: staff.name })
+    await logActivity(ctx.db, staff, 'waiter_ping', `Pinged waiter for order #${order.reference?.split('-').at(-1) ?? order.tableNumber} at table ${order.tableNumber}`)
+    return args.orderId
   },
 })
 
@@ -260,14 +364,14 @@ export const recommendations = queryGeneric({
     const items = await ctx.db.query('items').withIndex('by_restaurant_available', (query: any) =>
       query.eq('restaurantId', args.restaurantId).eq('available', true).eq('archived', false),
     ).collect()
-    const candidates = items.filter((item) => (args.budgetKes === undefined || item.priceKes <= args.budgetKes) && (args.category === undefined || item.category === args.category))
+    const candidates = items.filter((item) => (args.budgetKes === undefined || (item.offer?.active ? item.offer.offerPriceKes : item.priceKes) <= args.budgetKes) && (args.category === undefined || item.category === args.category))
     const since = Date.now() - 7 * 24 * 60 * 60 * 1000
     const recent = await ctx.db.query('orders').withIndex('by_restaurant_placedAt', (query: any) =>
       query.eq('restaurantId', args.restaurantId).gte('placedAt', since),
     ).collect()
     const counts = new Map<string, number>()
     for (const order of recent) if (order.status !== 'cancelled') for (const line of order.lines) counts.set(String(line.itemId), (counts.get(String(line.itemId)) ?? 0) + line.quantity)
-    return candidates.sort((a, b) => (counts.get(String(b._id)) ?? 0) - (counts.get(String(a._id)) ?? 0) || a.priceKes - b.priceKes).slice(0, 3)
+    return candidates.sort((a, b) => (counts.get(String(b._id)) ?? 0) - (counts.get(String(a._id)) ?? 0) || (a.offer?.active ? a.offer.offerPriceKes : a.priceKes) - (b.offer?.active ? b.offer.offerPriceKes : b.priceKes)).slice(0, 3)
   },
 })
 

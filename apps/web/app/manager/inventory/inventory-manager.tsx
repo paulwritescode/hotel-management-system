@@ -17,6 +17,7 @@ import { useAuthArgs, useBackendAvailable } from '@/components/providers'
 import { api } from '@/lib/convex'
 import { demoItems } from '@/lib/demo-data'
 import { categories, type Id, type Item } from '@/lib/models'
+import { menuImage } from '@/lib/menu-image-map'
 
 type ItemInput = Omit<Item, '_id' | 'archived' | 'imageUrl'>
 
@@ -31,7 +32,11 @@ function itemFromForm(form: HTMLFormElement): ItemInput | null {
   const quantityRaw = String(data.get('quantityOnHand') ?? '').trim()
   const quantity = quantityRaw === '' ? undefined : Number(quantityRaw)
   if (!name || !categories.includes(category) || !Number.isInteger(priceKes) || priceKes <= 0 || (quantity !== undefined && (!Number.isInteger(quantity) || quantity < 0))) return null
-  const item: ItemInput = { name, category, priceKes, available: data.get('available') === 'on' }
+  const preparationMinutes = Number(data.get('preparationMinutes'))
+  const offerOriginal = Number(data.get('offerOriginalPriceKes'))
+  const offerPrice = Number(data.get('offerPriceKes'))
+  const item: ItemInput = { name, category, priceKes, available: data.get('available') === 'on', preparationMinutes: Number.isInteger(preparationMinutes) && preparationMinutes > 0 ? preparationMinutes : 20 }
+  if (Number.isInteger(offerOriginal) && offerOriginal > 0 && Number.isInteger(offerPrice) && offerPrice > 0) item.offer = { label: String(data.get('offerLabel') ?? 'Offer').trim() || 'Offer', originalPriceKes: offerOriginal, offerPriceKes: offerPrice, active: data.get('offerActive') === 'on' }
   const nameSwahili = String(data.get('nameSwahili') ?? '').trim(); if (nameSwahili) item.nameSwahili = nameSwahili
   const description = String(data.get('description') ?? '').trim(); if (description) item.description = description
   if (quantity !== undefined) item.quantityOnHand = quantity
@@ -149,20 +154,20 @@ export function InventoryManager() {
   }
 
   const current = editing === 'new' ? undefined : editing ?? undefined
-  return <DashboardShell section="Inventory" actions={<><Link className="button button-outline button-small" href="/manager/inventory/import">Import file</Link><Button size="small" onClick={() => openEditor('new')}>Add item</Button></>}>
+  return <DashboardShell section="Menu items" actions={<><Link className="button button-outline button-small" href="/manager/inventory/import">Import menu items</Link><Button size="small" onClick={() => openEditor('new')}>Add menu item</Button></>}>
     <section className="page-section">
-      <div className="section-heading"><div><p className="caption">Menu and stock</p><h1>Inventory</h1><p className="muted">Create, edit, archive and change diner-facing availability</p></div></div>
-      <div className="filter-bar"><Input type="search" placeholder="Search inventory" value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search inventory"/><Select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter by category"><option value="all">All categories</option>{categories.map((entry) => <option key={entry}>{entry}</option>)}</Select></div>
+      <div className="section-heading"><div><p className="caption">Diner-facing menu</p><h1>Menu items</h1><p className="muted">Create, edit, archive, price and change availability for every menu item</p></div></div>
+      <div className="filter-bar"><Input type="search" placeholder="Search menu items" value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search menu items"/><Select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter menu items by category"><option value="all">All categories</option>{categories.map((entry) => <option key={entry}>{entry}</option>)}</Select></div>
       <div className="inventory-grid">{visible.map((item) => <Card className="inventory-card" key={item._id}>
         <div>
           <div className="inventory-image">
-            {item.imageUrl ? <Image src={item.imageUrl} alt={item.imageAlt ?? item.name} fill sizes="(max-width: 640px) 100vw, (max-width: 1068px) 33vw, 20vw" /> : <div className="inventory-image-placeholder" aria-hidden="true"><span>{item.name.charAt(0)}</span></div>}
+            <Image src={menuImage(item)} alt={item.imageAlt ?? item.name} fill sizes="(max-width: 640px) 100vw, (max-width: 1068px) 33vw, 20vw" />
             {item.imageCredit && item.imageCreditUrl && <a className="inventory-image-credit" href={item.imageCreditUrl} target="_blank" rel="noreferrer">{item.imageCredit}</a>}
           </div>
           <div className="stock-card-top"><Badge>{item.available ? 'Available' : 'Unavailable'}</Badge><Switch checked={item.available} onClick={() => toggle(item)} aria-label={`Toggle ${item.name} availability`} /></div>
           <h3>{item.name}</h3>{item.nameSwahili && <p className="caption muted">{item.nameSwahili}</p>}<p className="inventory-description">{item.description ?? 'No description yet'}</p>
         </div>
-        <div><div className="inventory-meta"><strong>KES {item.priceKes.toLocaleString()}</strong><span className="fine-print">{item.quantityOnHand === undefined ? 'Not tracked' : `${item.quantityOnHand} ${item.unit ?? 'units'}`}</span></div><div className="inventory-actions"><Button size="small" variant="secondary" onClick={() => openEditor(item)}>Edit</Button><Button size="small" variant="outline" onClick={() => setArchiveTarget(item)}>Archive</Button></div></div>
+        <div><div className="inventory-meta"><strong>{item.offer?.active ? <>WAS KES {item.offer.originalPriceKes.toLocaleString()} · NOW KES {item.offer.offerPriceKes.toLocaleString()}</> : <>KES {item.priceKes.toLocaleString()}</>}</strong><span className="fine-print">{item.preparationMinutes ?? 20} min prep · {item.quantityOnHand === undefined ? 'Not tracked' : `${item.quantityOnHand} ${item.unit ?? 'units'}`}</span></div>{item.offer?.active && <p className="caption offer-copy">{item.offer.label}</p>}<div className="inventory-actions"><Button size="small" variant="secondary" onClick={() => openEditor(item)}>Edit</Button><Button size="small" variant="outline" onClick={() => setArchiveTarget(item)}>Archive</Button></div></div>
       </Card>)}</div>
     </section>
 
@@ -179,7 +184,8 @@ export function InventoryManager() {
           </label>
         </div>
         <div className="field"><label htmlFor="item-image-alt">Image description</label><Input id="item-image-alt" name="imageAlt" defaultValue={current?.imageAlt} placeholder="Grilled chicken served with kachumbari" /></div>
-        <div className="field-grid"><div className="field"><label htmlFor="item-category">Category</label><Select id="item-category" name="category" defaultValue={current?.category ?? 'staple'}>{categories.map((entry) => <option key={entry}>{entry}</option>)}</Select></div><div className="field"><label htmlFor="item-price">Price in KES</label><Input id="item-price" name="priceKes" type="number" min="1" step="1" defaultValue={current?.priceKes} required /></div><div className="field"><label htmlFor="item-quantity">Quantity on hand</label><Input id="item-quantity" name="quantityOnHand" type="number" min="0" step="1" defaultValue={current?.quantityOnHand} placeholder="Not tracked" /></div><div className="field"><label htmlFor="item-unit">Unit</label><Input id="item-unit" name="unit" defaultValue={current?.unit} placeholder="kg, pcs, plate, L" /></div></div>
+        <div className="field-grid"><div className="field"><label htmlFor="item-category">Category</label><Select id="item-category" name="category" defaultValue={current?.category ?? 'staple'}>{categories.map((entry) => <option key={entry}>{entry}</option>)}</Select></div><div className="field"><label htmlFor="item-price">Price in KES</label><Input id="item-price" name="priceKes" type="number" min="1" step="1" defaultValue={current?.priceKes} required /></div><div className="field"><label htmlFor="item-prep">Default preparation time (minutes)</label><Input id="item-prep" name="preparationMinutes" type="number" min="1" max="240" step="1" defaultValue={current?.preparationMinutes ?? 20} required /></div><div className="field"><label htmlFor="item-quantity">Quantity on hand</label><Input id="item-quantity" name="quantityOnHand" type="number" min="0" step="1" defaultValue={current?.quantityOnHand} placeholder="Not tracked" /></div><div className="field"><label htmlFor="item-unit">Unit</label><Input id="item-unit" name="unit" defaultValue={current?.unit} placeholder="kg, pcs, plate, L" /></div></div>
+        <div className="field-grid"><div className="field"><label htmlFor="offer-label">Offer label</label><Input id="offer-label" name="offerLabel" defaultValue={current?.offer?.label} placeholder="Weekly offer" /></div><div className="field"><label htmlFor="offer-original">Offer original price</label><Input id="offer-original" name="offerOriginalPriceKes" type="number" min="1" step="1" defaultValue={current?.offer?.originalPriceKes} /></div><div className="field"><label htmlFor="offer-price">Offer price</label><Input id="offer-price" name="offerPriceKes" type="number" min="1" step="1" defaultValue={current?.offer?.offerPriceKes} /></div></div><label className="inline-controls"><input type="checkbox" name="offerActive" defaultChecked={current?.offer?.active ?? false} /> Offer is active</label>
         <label className="inline-controls"><input type="checkbox" name="available" defaultChecked={current?.available ?? true} /> Available to diners</label>
         <div className="form-actions"><Button type="button" variant="secondary" disabled={saving} onClick={() => setEditing(null)}>Discard</Button><Button type="submit" disabled={saving}>{saving ? (imageFile ? 'Uploading image' : 'Saving') : 'Save item'}</Button></div>
       </form>

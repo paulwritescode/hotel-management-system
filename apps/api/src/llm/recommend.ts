@@ -18,13 +18,13 @@ export function selectRecommendationCandidates(
       (item) =>
         item.available &&
         !item.archived &&
-        (constraints.budgetKes === undefined || item.priceKes <= constraints.budgetKes) &&
+        (constraints.budgetKes === undefined || (item.offer?.active ? item.offer.offerPriceKes : item.priceKes) <= constraints.budgetKes) &&
         (constraints.category === undefined || item.category === constraints.category),
     )
     .sort(
       (left, right) =>
         (right.recentOrderCount ?? 0) - (left.recentOrderCount ?? 0) ||
-        left.priceKes - right.priceKes ||
+        (left.offer?.active ? left.offer.offerPriceKes : left.priceKes) - (right.offer?.active ? right.offer.offerPriceKes : right.priceKes) ||
         left.name.localeCompare(right.name) ||
         left.id.localeCompare(right.id),
     )
@@ -33,7 +33,7 @@ export function selectRecommendationCandidates(
 
 export function recommendationTemplate(items: MenuItem[]): string {
   if (items.length === 0) return 'There are no matching available items right now. Type menu to browse everything.'
-  return ['Here are my suggestions:', ...items.map((item) => `• ${item.name} — KES ${item.priceKes}${item.description ? `: ${item.description}` : ''}`)].join('\n')
+  return ['Here are my suggestions:', ...items.map((item) => `• ${item.name} — KES ${item.offer?.active ? item.offer.offerPriceKes : item.priceKes}${item.offer?.active ? ` (${item.offer.label})` : ''}${item.description ? `: ${item.description}` : ''}`)].join('\n')
 }
 
 type NimResponse = { choices?: Array<{ message?: { content?: unknown } }> }
@@ -90,7 +90,7 @@ function formatPhrases(phrases: Phrase[], items: MenuItem[]): string {
     .map((phrase) => {
       const item = byId.get(phrase.itemId)
       if (!item) throw new Error('Recommendation item disappeared')
-      return `• ${item.name} — KES ${item.priceKes}: ${phrase.sentence}`
+      return `• ${item.name} — KES ${item.offer?.active ? item.offer.offerPriceKes : item.priceKes}: ${phrase.sentence}`
     })
     .join('\n')
 }

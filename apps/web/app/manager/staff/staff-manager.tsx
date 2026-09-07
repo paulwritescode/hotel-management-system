@@ -1,7 +1,7 @@
 'use client'
 
 import { useAction, useMutation, useQuery } from 'convex/react'
-import { Check, Copy, RefreshCw } from 'lucide-react'
+import { Check, Copy, Download, RefreshCw } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { ActivityFeed } from '@/components/activity-feed'
 import { DashboardShell } from '@/components/shell'
@@ -18,9 +18,21 @@ import { api } from '@/lib/convex'
 import { demoStaff } from '@/lib/demo-data'
 import { canManageStaff, creatableRoles, roleLevel, type Staff } from '@/lib/models'
 import { credentialMessage, generatePin } from '@/lib/staff-credentials'
+import { downloadRosterPdf } from '@/lib/roster-pdf'
 
 type ViewerRole = Staff['role']
 type Reveal = { name: string; role: Staff['role']; pin: string }
+type StaffChoice = 'manager' | 'waiter' | 'counter:payment' | 'counter:kitchen' | 'counter:custom'
+
+function staffChoice(person?: Staff): StaffChoice {
+  if (!person || person.role === 'owner') return 'waiter'
+  if (person.role === 'manager' || person.role === 'waiter') return person.role
+  return person.counterLabel === 'Kitchen counter' ? 'counter:kitchen' : person.counterLabel && person.counterLabel !== 'Payment counter' ? 'counter:custom' : 'counter:payment'
+}
+
+function roleFromChoice(choice: string): Staff['role'] {
+  return choice.startsWith('counter:') ? 'counter' : choice as Staff['role']
+}
 
 
 function relativeTime(at?: number): string {
@@ -78,6 +90,11 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
   const live = useQuery(api.staff.listVisible, backend ? auth! : 'skip')
   const auditLive = useQuery(api.staff.auditTrail, backend && isOwner ? auth! : 'skip')
   const lastActive = useQuery(api.activity.lastActive, backend ? auth! : 'skip')
+  const roster = useQuery(api.activity.roster, backend ? auth! : 'skip')
+  const rosterHistory = useQuery(api.activity.rosterHistory, backend ? auth! : 'skip')
+  const analytics = useQuery(api.analytics.dashboard, backend ? auth! : 'skip')
+  const clockIn = useMutation(api.activity.clockIn)
+  const clockOut = useMutation(api.activity.clockOut)
   const createStaff = useAction(api.staff.create)
   const updateStaff = useMutation(api.staff.update)
   const setPin = useAction(api.staff.setPin)
@@ -96,6 +113,7 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
   const [pinReveal, setPinReveal] = useState<Reveal | null>(null)
   const [removeTarget, setRemoveTarget] = useState<Staff | null>(null)
   const [busy, setBusy] = useState(false)
+  const [rosterBusy, setRosterBusy] = useState<string | null>(null)
 
   const rows = useMemo(() => [...staff].sort((left, right) =>
     Number(right.enabled) - Number(left.enabled) ||
@@ -107,13 +125,15 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
     event.preventDefault()
     const data = new FormData(event.currentTarget)
     const name = String(data.get('name') ?? '').trim()
-    const role = String(data.get('role')) as Staff['role']
-    if (name.length < 2 || !assignableRoles.includes(role)) { notify('Enter a name and a permitted role', 'error'); return }
+    const choice = String(data.get('role')) as StaffChoice
+    const role = roleFromChoice(choice)
+    const counterLabel = role === 'counter' ? (choice === 'counter:kitchen' ? 'Kitchen counter' : choice === 'counter:custom' ? String(data.get('counterLabel') ?? '').trim() : 'Payment counter') : undefined
+    if (name.length < 2 || !assignableRoles.includes(role) || (choice === 'counter:custom' && (!counterLabel || counterLabel.length < 2))) { notify('Enter a name, a permitted role and a custom counter label', 'error'); return }
     if (!draftPin) { notify('Generate a PIN before adding the staff member', 'error'); return }
     setBusy(true)
     try {
-      if (backend) await createStaff({ ...auth!, name, role, pin: draftPin })
-      else setStaff((current) => [...current, { _id: `staff-${Date.now()}`, name, role, enabled: true }])
+      if (backend) await createStaff({ ...auth!, name, role, ...(counterLabel ? { counterLabel } : {}), pin: draftPin })
+      else setStaff((current) => [...current, { _id: `staff-${Date.now()}`, name, role, ...(counterLabel ? { counterLabel } : {}), enabled: true }])
       setAddReveal({ name, role, pin: draftPin })
       notify('Staff member added')
     } catch (reason) { notify(reason instanceof Error ? reason.message : 'Staff member could not be added', 'error') }
@@ -127,13 +147,21 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
     if (!editing) return
     const data = new FormData(event.currentTarget)
     const name = String(data.get('name') ?? '').trim()
-    const role = String(data.get('role')) as Staff['role']
-    if (name.length < 2 || !assignableRoles.includes(role)) { notify('Enter a name and a permitted role', 'error'); return }
+    const choice = String(data.get('role')) as StaffChoice
+    const role = roleFromChoice(choice)
+    const counterLabel = role === 'counter' ? (choice === 'counter:kitchen' ? 'Kitchen counter' : choice === 'counter:custom' ? String(data.get('counterLabel') ?? '').trim() : 'Payment counter') : undefined
+    if (name.length < 2 || !assignableRoles.includes(role) || (choice === 'counter:custom' && (!counterLabel || counterLabel.length < 2))) { notify('Enter a name, a permitted role and a custom counter label', 'error'); return }
     const previous = staff
     setBusy(true)
     try {
-      setStaff((current) => current.map((person) => person._id === editing._id ? { ...person, name, role } : person))
-      if (backend) await updateStaff({ token: auth!.token, staffId: editing._id, name, role, enabled: editing.enabled })
+      setStaff((current) => current.map((person) => {
+        if (person._id !== editing._id) return person
+        const updated = { ...person, name, role }
+        if (role === 'counter' && counterLabel) updated.counterLabel = counterLabel
+        else if (role !== 'counter') delete updated.counterLabel
+        return updated
+      }))
+      if (backend) await updateStaff({ token: auth!.token, staffId: editing._id, name, role, ...(counterLabel ? { counterLabel } : {}), enabled: editing.enabled })
       notify('Staff member updated'); setEditing(null)
     } catch (reason) { setStaff(previous); notify(reason instanceof Error ? reason.message : 'Update failed and was reverted', 'error') }
     finally { setBusy(false) }
@@ -175,8 +203,18 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
   }
 
   const description = isOwner
-    ? 'Manage manager, counter and waiter access without exposing stored PINs'
-    : 'Manage counter and waiter access without exposing stored PINs'
+    ? 'Manage manager, payment counter, kitchen counter and waiter access without exposing stored PINs'
+    : 'Manage payment counter, kitchen counter and waiter access without exposing stored PINs'
+
+  async function toggleRoster(person: Staff) {
+    setRosterBusy(person._id)
+    try {
+      const current = roster?.[person._id]
+      if (backend) await (current?.status === 'clocked_in' ? clockOut : clockIn)({ ...auth!, staffId: person._id })
+      notify(current?.status === 'clocked_in' ? `${person.name} clocked out` : `${person.name} clocked in`)
+    } catch (reason) { notify(reason instanceof Error ? reason.message : 'Roster update failed', 'error') }
+    finally { setRosterBusy(null) }
+  }
 
   return <DashboardShell section="Staff" role={actorRole}>
     <section className="page-section">
@@ -187,15 +225,20 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
 
       {rows.length === 0 ? <Card><p className="muted">No counter or waiter staff yet.</p></Card>
         : <Card className="staff-table-card"><TableWrap><Table>
-          <thead><tr><Th className="staff-index-col">#</Th><Th>Name</Th><Th>Role</Th><Th>Status</Th><Th>Last active</Th><Th className="staff-actions-col">Actions</Th></tr></thead>
+          <thead><tr><Th className="staff-index-col">#</Th><Th>Name</Th><Th>Role</Th><Th>Assigned tables</Th><Th>Performance</Th><Th>Status</Th><Th>Shift</Th><Th>Roster</Th><Th>Last active</Th><Th className="staff-actions-col">Actions</Th></tr></thead>
           <tbody>{rows.map((person, index) => {
             const actionable = canManageStaff(actorRole, actorId, person)
             const activeAt = lastActive?.[person._id]
+            const performance = analytics?.waiters.find((entry) => entry.waiterId === person._id)
             return <tr key={person._id} className={person.enabled ? 'staff-row staff-row-active' : 'staff-row staff-row-disabled'}>
               <Td className="staff-index-col fine-print muted">{index + 1}</Td>
               <Td><div className="staff-name-cell"><span className="staff-avatar">{person.name.trim().charAt(0).toUpperCase()}</span><span><span className="body-strong">{person.name}</span>{person._id === actorId && <span className="fine-print muted"> · you</span>}</span></div></Td>
-              <Td><span className="staff-role-pill">{person.role}</span></Td>
+              <Td><span className="staff-role-pill">{person.role === 'counter' ? person.counterLabel ?? 'Payment counter' : person.role}</span></Td>
+              <Td className="fine-print muted">{person.role === 'waiter' ? performance?.tableNumbers.length ? performance.tableNumbers.join(', ') : 'No tables assigned' : '—'}</Td>
+              <Td className="fine-print muted">{person.role === 'waiter' ? performance ? `${performance.ordersServed} served · ${performance.medianServeTimeMs === null ? '—' : `${Math.round(performance.medianServeTimeMs / 60_000)} min median`}` : 'No service data' : '—'}</Td>
               <Td><span className={person.enabled ? 'staff-status staff-status-active' : 'staff-status staff-status-disabled'}><span className="staff-status-dot" aria-hidden="true" />{person.enabled ? 'Active' : 'Disabled'}</span></Td>
+              <Td className="fine-print muted">{roster?.[person._id]?.status === 'clocked_in' ? <span title={new Date(roster[person._id]!.at).toLocaleString()}>In {new Date(roster[person._id]!.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span> : roster?.[person._id]?.status === 'clocked_out' ? <span title={new Date(roster[person._id]!.at).toLocaleString()}>Out {new Date(roster[person._id]!.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span> : 'Not today'}</Td>
+              <Td><Button size="small" variant={roster?.[person._id]?.status === 'clocked_in' ? 'secondary' : 'outline'} disabled={rosterBusy === person._id || !person.enabled || !['counter', 'waiter'].includes(person.role)} onClick={() => toggleRoster(person)}>{rosterBusy === person._id ? 'Saving…' : roster?.[person._id]?.status === 'clocked_in' ? 'Clock out' : 'Clock in'}</Button></Td>
               <Td className="fine-print muted">{activeAt ? <span title={new Date(activeAt).toLocaleString()}>{relativeTime(activeAt)}</span> : 'Never'}</Td>
               <Td className="staff-actions-col">{actionable
                 ? <RowActions label={`Actions for ${person.name}`} actions={[
@@ -213,6 +256,11 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
         </Table></TableWrap></Card>}
     </section>
 
+    <section className="page-section" aria-labelledby="roster-history-heading" style={{ paddingTop: 0 }}>
+      <div className="section-heading"><div><p className="caption">Attendance</p><h2 id="roster-history-heading">Roster history</h2><p className="muted">Clock-in and clock-out records for the latest staff shifts</p></div><Button size="small" variant="outline" disabled={!rosterHistory?.length} onClick={() => rosterHistory && void downloadRosterPdf(rosterHistory)}><Download size={15} />Export PDF</Button></div>
+      {(rosterHistory?.length ?? 0) === 0 ? <Card><p className="muted">No shifts have been recorded yet.</p></Card> : <Card className="staff-table-card"><TableWrap><Table><thead><tr><Th>Staff</Th><Th>Role</Th><Th>Clocked in</Th><Th>Clocked out</Th><Th>Duration</Th></tr></thead><tbody>{rosterHistory!.map((shift) => { const duration = (shift.clockOutAt ?? Date.now()) - shift.clockInAt; return <tr key={shift._id}><Td><span className="body-strong">{shift.staffName}</span></Td><Td><span className="staff-role-pill">{shift.staffRole}</span></Td><Td className="fine-print muted">{new Date(shift.clockInAt).toLocaleString()}</Td><Td className="fine-print muted">{shift.clockOutAt ? new Date(shift.clockOutAt).toLocaleString() : 'Currently on shift'}</Td><Td className="fine-print muted">{Math.floor(duration / 3_600_000)}h {Math.floor(duration / 60_000) % 60}m</Td></tr> })}</tbody></Table></TableWrap></Card>}
+    </section>
+
     {isOwner && <section className="page-section" aria-labelledby="audit-heading" style={{ paddingTop: 0 }}>
       <div className="section-heading"><div><p className="caption">Accountability</p><h2 id="audit-heading">Audit trail</h2><p className="muted">Every staff account change, newest first</p></div></div>
       {(auditLive?.length ?? 0) === 0 ? <Card><p className="muted">No staff account changes recorded yet.</p></Card>
@@ -228,16 +276,17 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
         </Table></TableWrap>{auditLive!.length >= 100 && <p className="fine-print muted" style={{ marginTop: 12 }}>Showing the 100 most recent changes.</p>}</Card>}
     </section>}
 
-    {!isOwner && <section className="page-section" style={{ paddingTop: 0 }}>
-      <ActivityFeed title="Team activity" scopeNote="Counter and waiter activity — who signed in and what they changed, where and when" limit={100} />
-    </section>}
+    <section className="page-section" style={{ paddingTop: 0 }}>
+      <ActivityFeed title="Activity log" scopeNote={isOwner ? 'All staff activity, including clock-in and clock-out events' : 'Counter and waiter activity, including clock-in and clock-out events'} limit={100} />
+    </section>
 
     <Dialog open={adding} onClose={() => { if (!busy) closeAdd() }} title="Add staff member" description="PINs are hashed with salted PBKDF2 and shown only once here">
       {addReveal
         ? <PinReveal reveal={addReveal} onDone={closeAdd} />
         : <form className="form-stack" onSubmit={add}>
             <div className="field"><label htmlFor="staff-name">Name</label><Input id="staff-name" name="name" minLength={2} required /></div>
-            <div className="field"><label htmlFor="staff-role">Role</label><Select id="staff-role" name="role" defaultValue={assignableRoles.at(-1) ?? 'waiter'}>{assignableRoles.map((role) => <option key={role} value={role}>{role}</option>)}</Select></div>
+            <div className="field"><label htmlFor="staff-role">Staff category</label><Select id="staff-role" name="role" defaultValue={assignableRoles.includes('counter') ? 'counter:payment' : 'waiter'}><option value="waiter" disabled={!assignableRoles.includes('waiter')}>Waiter</option><option value="counter:payment" disabled={!assignableRoles.includes('counter')}>Payment counter</option><option value="counter:kitchen" disabled={!assignableRoles.includes('counter')}>Kitchen counter</option><option value="counter:custom" disabled={!assignableRoles.includes('counter')}>Custom counter</option>{assignableRoles.includes('manager') && <option value="manager">Manager</option>}</Select><p className="fine-print muted">Kitchen counter staff use the Kitchen dashboard. Custom counter labels are for other counter duties.</p></div>
+            <div className="field"><label htmlFor="staff-counter-label">Custom counter label <span className="muted">(only for Custom counter)</span></label><Input id="staff-counter-label" name="counterLabel" placeholder="e.g. Bar counter" /></div>
             <div className="field">
               <label>PIN</label>
               {draftPin
@@ -253,7 +302,7 @@ export function StaffManager({ viewerRole, viewerStaffId }: { viewerRole?: Viewe
     </Dialog>
 
     <Dialog open={Boolean(editing)} onClose={() => { if (!busy) setEditing(null) }} title="Edit staff member" description="Change the name or role. Use reset PIN to change the PIN.">
-      {editing && <form className="form-stack" onSubmit={saveEdit}><div className="field"><label htmlFor="edit-name">Name</label><Input id="edit-name" name="name" defaultValue={editing.name} minLength={2} required /></div><div className="field"><label htmlFor="edit-role">Role</label><Select id="edit-role" name="role" defaultValue={editing.role}>{Array.from(new Set([editing.role, ...assignableRoles])).map((role) => <option key={role} value={role}>{role}</option>)}</Select></div><div className="form-actions"><Button type="button" variant="secondary" disabled={busy} onClick={() => setEditing(null)}>Discard</Button><Button type="submit" disabled={busy}>Save changes</Button></div></form>}
+      {editing && <form className="form-stack" onSubmit={saveEdit}><div className="field"><label htmlFor="edit-name">Name</label><Input id="edit-name" name="name" defaultValue={editing.name} minLength={2} required /></div><div className="field"><label htmlFor="edit-role">Staff category</label><Select id="edit-role" name="role" defaultValue={staffChoice(editing)}><option value="waiter" disabled={!assignableRoles.includes('waiter') && editing.role !== 'waiter'}>Waiter</option><option value="counter:payment" disabled={!assignableRoles.includes('counter') && editing.role !== 'counter'}>Payment counter</option><option value="counter:kitchen" disabled={!assignableRoles.includes('counter') && editing.role !== 'counter'}>Kitchen counter</option><option value="counter:custom" disabled={!assignableRoles.includes('counter') && editing.role !== 'counter'}>Custom counter</option>{(assignableRoles.includes('manager') || editing.role === 'manager') && <option value="manager">Manager</option>}</Select></div><div className="field"><label htmlFor="edit-counter-label">Custom counter label <span className="muted">(only for Custom counter)</span></label><Input id="edit-counter-label" name="counterLabel" defaultValue={editing.role === 'counter' ? editing.counterLabel === 'Kitchen counter' || editing.counterLabel === 'Payment counter' ? '' : editing.counterLabel : ''} placeholder="e.g. Bar counter" /></div><div className="form-actions"><Button type="button" variant="secondary" disabled={busy} onClick={() => setEditing(null)}>Discard</Button><Button type="submit" disabled={busy}>Save changes</Button></div></form>}
     </Dialog>
 
     <Dialog open={Boolean(pinTarget)} onClose={() => { if (!busy) closePin() }} title="New PIN" description={pinReveal ? '' : `Issue a new PIN for ${pinTarget?.name ?? 'this staff member'}`}>

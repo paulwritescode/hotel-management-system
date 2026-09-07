@@ -6,7 +6,7 @@ import { hashPin } from './auth'
 const role = v.union(v.literal('owner'), v.literal('manager'), v.literal('counter'), v.literal('waiter'))
 const readStaffRef = makeFunctionReference<'query', { staffId: string }, any>('auth:readStaff')
 const createRef = makeFunctionReference<'mutation', {
-  restaurantId: string; name: string; role: StaffRole; pinHash: string; pinSalt: string
+  restaurantId: string; name: string; role: StaffRole; counterLabel?: string; pinHash: string; pinSalt: string
   actorStaffId: string; actorRole: StaffRole
 }, string>('staff:createInternal')
 const setPinRef = makeFunctionReference<'mutation', {
@@ -49,7 +49,7 @@ export const listVisible = queryGeneric({
 })
 
 export const create = actionGeneric({
-  args: { token: v.string(), restaurantId: v.id('restaurants'), name: v.string(), role, pin: v.string() },
+  args: { token: v.string(), restaurantId: v.id('restaurants'), name: v.string(), role, counterLabel: v.optional(v.string()), pin: v.string() },
   handler: async (ctx, args) => {
     const actor = await requireActor(ctx, args.token, String(args.restaurantId))
     // Reject before hashing so an unauthorized caller cannot even trigger the work.
@@ -57,7 +57,7 @@ export const create = actionGeneric({
     const name = cleanRequired(args.name, 'name', 100)
     const pin = await hashPin(args.pin)
     return ctx.runMutation(createRef, {
-      restaurantId: args.restaurantId, name, role: args.role, pinHash: pin.hash, pinSalt: pin.salt,
+      restaurantId: args.restaurantId, name, role: args.role, ...(args.counterLabel?.trim() ? { counterLabel: args.counterLabel.trim() } : {}), pinHash: pin.hash, pinSalt: pin.salt,
       actorStaffId: String(actor._id), actorRole: actor.role,
     })
   },
@@ -65,7 +65,7 @@ export const create = actionGeneric({
 
 export const createInternal = internalMutationGeneric({
   args: {
-    restaurantId: v.id('restaurants'), name: v.string(), role, pinHash: v.string(), pinSalt: v.string(),
+    restaurantId: v.id('restaurants'), name: v.string(), role, counterLabel: v.optional(v.string()), pinHash: v.string(), pinSalt: v.string(),
     actorStaffId: v.id('staff'), actorRole: role,
   },
   handler: async (ctx, args) => {
@@ -73,7 +73,7 @@ export const createInternal = internalMutationGeneric({
     assertMayManage(args.actorRole as StaffRole, args.role as StaffRole, String(args.actorStaffId), null)
     const now = Date.now()
     const staffId = await ctx.db.insert('staff', {
-      restaurantId: args.restaurantId, name: args.name, role: args.role,
+      restaurantId: args.restaurantId, name: args.name, role: args.role, counterLabel: args.counterLabel,
       pinHash: args.pinHash, pinSalt: args.pinSalt, enabled: true, failedAttempts: 0, createdAt: now,
     })
     await ctx.db.insert('staffAudit', {
@@ -123,7 +123,7 @@ export const setPinInternal = internalMutationGeneric({
 })
 
 export const update = mutationGeneric({
-  args: { token: v.string(), staffId: v.id('staff'), name: v.string(), role, enabled: v.boolean() },
+  args: { token: v.string(), staffId: v.id('staff'), name: v.string(), role, counterLabel: v.optional(v.string()), enabled: v.boolean() },
   handler: async (ctx, args) => {
     const target = await ctx.db.get(args.staffId)
     if (!target) throw new Error('Staff member not found')
@@ -135,7 +135,7 @@ export const update = mutationGeneric({
     const roleChanged = target.role !== args.role
     const enabledChanged = target.enabled !== args.enabled
     await ctx.db.patch(args.staffId, {
-      name: cleanRequired(args.name, 'name', 100), role: args.role, enabled: args.enabled,
+      name: cleanRequired(args.name, 'name', 100), role: args.role, counterLabel: args.counterLabel?.trim() || undefined, enabled: args.enabled,
       failedAttempts: args.enabled ? target.failedAttempts : 0, lockedUntil: undefined,
     })
     if (roleChanged) {

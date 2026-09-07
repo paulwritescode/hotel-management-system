@@ -7,6 +7,7 @@ export type MenuItem = {
   description?: string
   category: ItemCategory
   priceKes: number
+  offer?: { label: string; originalPriceKes: number; offerPriceKes: number; active: boolean }
   available: boolean
   archived: boolean
   quantityOnHand?: number

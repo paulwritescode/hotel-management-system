@@ -84,6 +84,12 @@ export const dashboard = queryGeneric({
       aggregate.ratings.push(entry.rating)
       waiterMap.set(key, aggregate)
     }
+    const tables = await ctx.db.query('tables').withIndex('by_restaurant_number', (query: any) => query.eq('restaurantId', args.restaurantId)).collect()
+    const tablesByWaiter = new Map<string, number[]>()
+    for (const table of tables) if (table.assignedWaiterId) {
+      const key = String(table.assignedWaiterId)
+      tablesByWaiter.set(key, [...(tablesByWaiter.get(key) ?? []), table.number])
+    }
 
     const lowestRatedItems = [...itemRatings.values()].map((entry) => {
       const average = entry.ratings.reduce((sum, rating) => sum + rating, 0) / entry.ratings.length
@@ -108,8 +114,37 @@ export const dashboard = queryGeneric({
         ratingCount: entry.ratings.length,
         meanRating: entry.ratings.length >= 5 ? entry.ratings.reduce((sum, rating) => sum + rating, 0) / entry.ratings.length : null,
         ratings: entry.ratings.length < 5 ? entry.ratings : undefined,
+        tableNumbers: (tablesByWaiter.get(entry.waiterId) ?? []).sort((a, b) => a - b),
       }
     }))
+
+    const currentItems = await ctx.db.query('items').withIndex('by_restaurant', (query: any) => query.eq('restaurantId', args.restaurantId)).collect()
+    const activeOffers = currentItems.filter((item) => !item.archived && item.offer?.active)
+    const offerItemMap = new Map<string, { itemId: string; name: string; offerLabel: string; offerPriceKes: number; originalPriceKes: number; units: number; discountKes: number; revenueKes: number }>()
+    const offerOrderIds = new Set<string>()
+    let offerUnits = 0
+    let offerDiscountKes = 0
+    let offerRevenueKes = 0
+    for (const order of valid) for (const line of order.lines) {
+      if (!line.offerLabelSnapshot || line.originalPriceKesSnapshot === undefined || line.discountKesSnapshot === undefined) continue
+      offerOrderIds.add(String(order._id))
+      const units = line.quantity
+      const discount = line.discountKesSnapshot * units
+      const revenue = line.priceKesSnapshot * units
+      const key = String(line.itemId)
+      const current = offerItemMap.get(key) ?? {
+        itemId: key, name: line.nameSnapshot, offerLabel: line.offerLabelSnapshot,
+        offerPriceKes: line.priceKesSnapshot, originalPriceKes: line.originalPriceKesSnapshot,
+        units: 0, discountKes: 0, revenueKes: 0,
+      }
+      current.units += units
+      current.discountKes += discount
+      current.revenueKes += revenue
+      offerItemMap.set(key, current)
+      offerUnits += units
+      offerDiscountKes += discount
+      if (isPaid(order)) offerRevenueKes += revenue
+    }
 
     return {
       windows: { today: { from: todayStart, to: now }, last7Days: { from: sevenDaysAgo, to: now } },
@@ -119,6 +154,16 @@ export const dashboard = queryGeneric({
       ordersByHour,
       tables: [...tableMap.values()].map((entry) => ({ tableNumber: entry.tableNumber, orders: entry.orders, revenueKes: entry.revenueKes, medianTurnaroundMs: median(entry.turnarounds) })).sort((a, b) => a.tableNumber - b.tableNumber),
       waiters,
+      offers: {
+        activeItems: activeOffers.length,
+        offerOrders: offerOrderIds.size,
+        offerUnits,
+        discountKes: offerDiscountKes,
+        revenueKes: offerRevenueKes,
+        normalOrders: valid.filter((order) => !order.lines.some((line: any) => line.offerLabelSnapshot)).length,
+        normalRevenueKes: valid.filter((order) => !order.lines.some((line: any) => line.offerLabelSnapshot) && isPaid(order)).reduce((sum, order) => sum + order.totalKes, 0),
+        items: [...offerItemMap.values()].sort((a, b) => b.units - a.units).slice(0, 10),
+      },
     }
   },
 })

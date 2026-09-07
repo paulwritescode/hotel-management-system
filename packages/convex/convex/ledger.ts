@@ -55,6 +55,15 @@ export const settlementLog = queryGeneric({
       query.eq('restaurantId', args.restaurantId).gte('at', from),
     ).order('desc').take(1000)
 
+    // Payment providers settle web orders directly because there is no staff member to attach
+    // to the settlement. Include those order records in the manager/owner log so the summary and
+    // detail view describe the same payments. Counter-recorded payments already have a `paid`
+    // ledger row and are excluded below to prevent duplicate entries.
+    const orders = (await ctx.db.query('orders').withIndex('by_restaurant_placedAt', (query: any) =>
+      query.eq('restaurantId', args.restaurantId),
+    ).collect()).filter((order: any) => order.placedAt >= from || (order.paidAt ?? 0) >= from)
+    const ledgerPaidOrderIds = new Set(ledgerRows.filter((row: any) => row.kind === 'paid').map((row: any) => String(row.orderId)))
+
     // §1.1 — visible if it is the viewer's own action, or the actor is strictly below the viewer.
     const visibleRows = ledgerRows.filter((row: any) => {
       if (String(row.staffId) === String(viewer._id)) return true
@@ -89,10 +98,25 @@ export const settlementLog = queryGeneric({
       }
     }
 
+    for (const order of orders) {
+      if (order.paymentStatus !== 'paid' || !order.paidAt || ledgerPaidOrderIds.has(String(order._id))) continue
+      const entry = {
+        _id: `order-payment-${String(order._id)}`,
+        kind: 'paid',
+        at: order.paidAt,
+        amountKes: order.totalKes,
+        method: order.paymentMethod ?? 'card',
+        actorName: 'Customer payment',
+        reference: order.reference,
+        tableNumber: order.tableNumber,
+        customerName: order.customerName,
+      }
+      if ((!args.method || entry.method === args.method) && (!args.kind || entry.kind === args.kind)) entries.push(entry)
+    }
+
+    entries.sort((a, b) => b.at - a.at)
+
     // Summary + attention over the window, from the orders themselves.
-    const orders = await ctx.db.query('orders').withIndex('by_restaurant_placedAt', (query: any) =>
-      query.eq('restaurantId', args.restaurantId).gte('placedAt', from),
-    ).collect()
     const nonCancelled = orders.filter((order: any) => order.status !== 'cancelled')
     const paid = nonCancelled.filter((order: any) => order.paymentStatus === 'paid')
     const waived = nonCancelled.filter((order: any) => order.paymentStatus === 'waived')
@@ -185,7 +209,7 @@ export const orderTimeline = queryGeneric({
 
     type Event = { at: number; label: string; actor: string; exception?: boolean }
     const events: Event[] = []
-    events.push({ at: order.placedAt, label: order.source === 'whatsapp' ? 'Placed via WhatsApp' : 'Placed at counter', actor: order.source === 'whatsapp' ? order.customerName : 'Counter' })
+    events.push({ at: order.placedAt, label: order.source === 'whatsapp' ? 'Placed via WhatsApp' : order.source === 'web' ? 'Placed via table menu' : 'Placed at counter', actor: order.source === 'whatsapp' || order.source === 'web' ? order.customerName : 'Counter' })
     if (order.acknowledgedAt) events.push({ at: order.acknowledgedAt, label: 'Acknowledged', actor: nameOf(order.acknowledgedByStaffId) })
     if (order.servedAt) events.push({ at: order.servedAt, label: 'Served', actor: order.servedByName ?? nameOf(order.servedByStaffId) })
     if (order.status === 'cancelled' && order.closedAt) events.push({ at: order.closedAt, label: `Cancelled${order.cancellationReason ? ` · "${order.cancellationReason}"` : ''}`, actor: nameOf(order.cancelledByStaffId), exception: true })

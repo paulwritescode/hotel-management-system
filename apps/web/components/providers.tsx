@@ -10,6 +10,7 @@ export type InitialAuth = AuthArgs & {
   staffId: string
   name: string
   role: 'owner' | 'manager' | 'counter' | 'waiter'
+  counterLabel?: string
 }
 
 type BackendContextValue = {
@@ -31,7 +32,7 @@ export function useAuthArgs(): AuthArgs | null {
 
 export function useStaffIdentity(): Omit<InitialAuth, keyof AuthArgs> | null {
   const { auth } = useContext(BackendContext)
-  return auth ? { staffId: auth.staffId, name: auth.name, role: auth.role } : null
+  return auth ? { staffId: auth.staffId, name: auth.name, role: auth.role, ...(auth.counterLabel ? { counterLabel: auth.counterLabel } : {}) } : null
 }
 
 export function Providers({ children, initialAuth }: { children: React.ReactNode; initialAuth: InitialAuth | null }) {

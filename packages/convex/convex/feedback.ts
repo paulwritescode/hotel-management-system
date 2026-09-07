@@ -29,6 +29,27 @@ export const submit = mutationGeneric({
   },
 })
 
+// Public feedback entry point for QR/web orders. Payment confirms the diner owns this order;
+// unlike the WhatsApp flow, there is no phone number to use as an additional identity check.
+export const submitWeb = mutationGeneric({
+  args: { restaurantId: v.id('restaurants'), orderId: v.id('orders'), rating: v.number(), comment: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    if (!Number.isInteger(args.rating) || args.rating < 1 || args.rating > 5) throw new Error('Rating must be an integer from 1 to 5')
+    const order = await ctx.db.get(args.orderId)
+    if (!order || String(order.restaurantId) !== String(args.restaurantId) || order.source !== 'web' || order.paymentStatus !== 'paid') throw new Error('Paid web order not found')
+    const existing = await ctx.db.query('feedback').withIndex('by_order', (query) => query.eq('orderId', args.orderId)).unique()
+    if (existing) throw new Error('Feedback was already submitted')
+    const comment = args.comment?.trim()
+    if (comment && comment.length > 2000) throw new Error('Feedback comment is too long')
+    const feedbackId = await ctx.db.insert('feedback', {
+      restaurantId: args.restaurantId, orderId: args.orderId, rating: args.rating,
+      comment: comment || undefined, itemIds: [...new Set(order.lines.map((line: { itemId: any }) => line.itemId))],
+      waiterId: order.servedByStaffId, createdAt: Date.now(),
+    })
+    return feedbackId
+  },
+})
+
 export const addComment = mutationGeneric({
   args: { restaurantId: v.id('restaurants'), orderId: v.id('orders'), phone: v.string(), comment: v.string() },
   handler: async (ctx, args) => {

@@ -9,6 +9,15 @@ afterEach(() => {
 })
 
 describe('requireStaff', () => {
+  it('allows an owner anywhere a manager is allowed', async () => {
+    process.env.SESSION_SECRET = 'a-convex-session-secret-long-enough-for-tests'
+    const token = await issueSessionToken({
+      staffId: 'owner-1', restaurantId: 'restaurant-1', role: 'owner', exp: Date.now() + 60_000,
+    })
+    const db = { get: async () => ({ _id: 'owner-1', restaurantId: 'restaurant-1', role: 'owner', enabled: true }) }
+    await expect(requireStaff(db as never, token, ['manager'], 'restaurant-1')).resolves.toMatchObject({ role: 'owner' })
+  })
+
   it('rechecks the database and rejects a staff member disabled after token issuance', async () => {
     process.env.SESSION_SECRET = 'a-convex-session-secret-long-enough-for-tests'
     const token = await issueSessionToken({

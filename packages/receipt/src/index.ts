@@ -30,6 +30,7 @@ export type ReceiptOrderLine = {
 
 export type ReceiptOrder = {
   reference?: string
+  paymentReference?: string
   tableNumber: number
   customerName: string
   totalKes: number
@@ -40,6 +41,7 @@ export type ReceiptOrder = {
 
 export type ReceiptAssets = {
   logoPng?: ArrayBuffer | Uint8Array
+  paidStampPng?: ArrayBuffer | Uint8Array
   monoTtf?: ArrayBuffer | Uint8Array
   monoBoldTtf?: ArrayBuffer | Uint8Array
   /**
@@ -82,6 +84,7 @@ export async function buildOrderSummaryPdf(
   order: ReceiptOrder,
   payment?: ReceiptPaymentConfig,
   assets: ReceiptAssets = {},
+  kind: 'order' | 'payment' = 'order',
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.create()
   if (assets.fontkit) pdf.registerFontkit(assets.fontkit as Parameters<typeof pdf.registerFontkit>[0])
@@ -94,13 +97,15 @@ export async function buildOrderSummaryPdf(
   const monoBold =
     canEmbedTtf && assets.monoBoldTtf ? await embedTtf(pdf, assets.monoBoldTtf, courier) : courier
   const logo = assets.logoPng ? await embedPng(pdf, assets.logoPng) : null
+  const paidStamp = assets.paidStampPng ? await embedPng(pdf, assets.paidStampPng) : null
+  const isPaymentReceipt = kind === 'payment'
 
   // Only render the methods the restaurant has configured (§3.3). The fixed order keeps the
   // section stable regardless of how the array was stored.
   const acceptedMethods = PAYMENT_METHOD_ORDER.filter((method) =>
     (payment?.acceptedPaymentMethods ?? []).includes(method),
   )
-  const height = 162 * MM + order.lines.length * 6 * MM + acceptedMethods.length * 5 * MM
+  const height = 162 * MM + order.lines.length * 6 * MM + (isPaymentReceipt ? 0 : acceptedMethods.length * 5 * MM)
   const page = pdf.addPage([WIDTH, height])
   page.drawRectangle({ x: 0, y: 0, width: WIDTH, height, color: rgb(1, 1, 1) })
   const ink = rgb(0.11, 0.11, 0.11)
@@ -133,7 +138,7 @@ export async function buildOrderSummaryPdf(
     center(RESTAURANT_NAME, bold, 12)
   }
 
-  center('Order Summary', bold, 11)
+  center(isPaymentReceipt ? 'Payment Receipt' : 'Order Summary', bold, 11)
   y -= 2
 
   // §3.4 — the reference is promoted to the visual anchor: the largest text on the page, since it
@@ -173,6 +178,17 @@ export async function buildOrderSummaryPdf(
   row('TOTAL', `KES ${order.totalKes.toLocaleString()}`, monoBold, 11, ink)
   y -= 10
 
+  if (isPaymentReceipt) {
+    rule()
+    left('PAYMENT STATUS', bold, 8, ink)
+    y -= 2
+    left('Payment received via Paystack.', font, 7, muted)
+    if (order.paymentReference) row('Transaction reference', order.paymentReference, mono, 8)
+    if (paidStamp) {
+      const scaled = paidStamp.scaleToFit(22 * MM, 22 * MM)
+      page.drawImage(paidStamp, { x: WIDTH - MARGIN - scaled.width, y: MARGIN + 3, width: scaled.width, height: scaled.height })
+    }
+  } else {
   // §3.2 — HOW TO PAY, between the total and the footer disclaimer. Tells the diner how to pay;
   // it never states that payment has occurred, and carries no status, no QR, and no link.
   if (acceptedMethods.length > 0) {
@@ -202,6 +218,7 @@ export async function buildOrderSummaryPdf(
   y -= 4
   left(RESTAURANT_NAME, font, 7, muted)
   if (assets.contact) left(assets.contact, mono, 7, muted)
+  }
 
   return pdf.save()
 }

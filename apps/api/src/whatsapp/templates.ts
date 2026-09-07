@@ -26,6 +26,16 @@ function clip(value: string, length: number): string {
   return `${value.slice(0, Math.max(0, length - 1)).trimEnd()}…`
 }
 
+function menuPrice(item: MenuItem): number {
+  return item.offer?.active ? item.offer.offerPriceKes : item.priceKes
+}
+
+function menuPriceText(item: MenuItem): string {
+  return item.offer?.active
+    ? `KES ${menuPrice(item)} (${item.offer.label}; was KES ${item.offer.originalPriceKes})`
+    : `KES ${menuPrice(item)}`
+}
+
 export function paginateText(text: string, maxLength = MAX_BODY_LENGTH): string[] {
   const normalized = text.trim()
   if (!normalized) return ['']
@@ -95,7 +105,7 @@ export function buildMenuLists(
         pageItems.map(({ item, menuNumber }) => ({
           id: `item:${item.id}`,
           title: clip(`${menuNumber}. ${item.name}`, 24),
-          description: clip(`KES ${item.priceKes}${item.description ? ` · ${item.description}` : ''}`, 72),
+          description: clip(`${menuPriceText(item)}${item.description ? ` · ${item.description}` : ''}`, 72),
         })),
       ),
     )
@@ -123,7 +133,7 @@ export function cartTotal(
   const byId = new Map(items.map((item) => [item.id, item]))
   return cart.reduce((sum, line) => {
     const item = byId.get(line.itemId)
-    return sum + (item ? item.priceKes * line.quantity : 0)
+    return sum + (item ? menuPrice(item) * line.quantity : 0)
   }, 0)
 }
 
@@ -136,7 +146,7 @@ export function formatCart(items: MenuItem[], cart: Array<{ itemId: string; quan
   const lines = cart.map((line, index) => {
     const item = byId.get(line.itemId)
     if (!item) return `${index + 1}. Unavailable item × ${line.quantity}`
-    return `${index + 1}. ${line.quantity} × ${item.name}\n    KES ${formatKes(item.priceKes * line.quantity)}`
+    return `${index + 1}. ${line.quantity} × ${item.name}\n    KES ${formatKes(menuPrice(item) * line.quantity)}`
   })
   return [
     '*Your cart*',

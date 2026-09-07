@@ -7,6 +7,7 @@ import {
   logActivity,
   requireStaff,
 } from './_helpers'
+import { menuCatalog } from './menu_catalog'
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
@@ -21,6 +22,12 @@ const baseItemInput = {
   description: v.optional(v.string()),
   category,
   priceKes: v.number(),
+  preparationMinutes: v.optional(v.number()),
+  offer: v.optional(v.object({
+    label: v.string(), originalPriceKes: v.number(), offerPriceKes: v.number(), active: v.boolean(),
+    schedule: v.optional(v.union(v.literal('daily'), v.literal('weekly'), v.literal('black_friday'), v.literal('date_range'))),
+    startsAt: v.optional(v.number()), endsAt: v.optional(v.number()),
+  })),
   available: v.boolean(),
   quantityOnHand: v.optional(v.number()),
   unit: v.optional(v.string()),
@@ -34,12 +41,54 @@ const imageInput = {
 }
 const itemInput = { ...baseItemInput, ...imageInput }
 
+// Reconciles the complete fixed PDF-backed catalog, including weekly offers, into the live menu.
+// This is manager/owner-only and idempotent, so it can safely be run after a catalog update.
+export const syncFixedOffers = mutationGeneric({
+  args: { token: v.string(), restaurantId: v.id('restaurants') },
+  handler: async (ctx, args) => {
+    const staff = await requireStaff(ctx.db, args.token, ['manager'], String(args.restaurantId))
+    const items = await ctx.db.query('items').withIndex('by_restaurant', (query: any) => query.eq('restaurantId', args.restaurantId)).collect()
+    const byName = new Map(items.map((entry: any) => [entry.name.toLocaleLowerCase(), entry]))
+    const catalogNames = new Set(menuCatalog.map((entry) => entry.name.toLocaleLowerCase()))
+    let updated = 0
+    let added = 0
+    for (const entry of menuCatalog) {
+      const existing = byName.get(entry.name.toLocaleLowerCase())
+      const itemData = {
+        name: entry.name, category: entry.category, priceKes: entry.priceKes,
+        preparationMinutes: entry.preparationMinutes, description: entry.description,
+        ...(entry.offer ? { offer: entry.offer } : { offer: undefined }),
+        unit: entry.unit ?? 'plate', available: true, archived: false, updatedAt: Date.now(),
+      }
+      if (existing) {
+        await ctx.db.patch(existing._id, itemData)
+        updated += 1
+      } else {
+        const id = await ctx.db.insert('items', { restaurantId: args.restaurantId, ...itemData, quantityOnHand: 30, createdAt: Date.now() })
+        byName.set(entry.name.toLocaleLowerCase(), { _id: id })
+        added += 1
+      }
+    }
+    let archived = 0
+    for (const existing of items) {
+      if (!catalogNames.has(existing.name.toLocaleLowerCase()) && !existing.archived) {
+        await ctx.db.patch(existing._id, { available: false, archived: true, updatedAt: Date.now() })
+        archived += 1
+      }
+    }
+    await logActivity(ctx.db, staff, 'menu_sync', `Synced ${menuCatalog.length} fixed menu items from the catalog · ${updated} updated · ${added} added · ${archived} archived`)
+    return { updated, added, archived, total: menuCatalog.length }
+  },
+})
+
 type ItemInput = {
   name: string
   nameSwahili?: string
   description?: string
   category: 'staple' | 'vegetable' | 'meat' | 'bread' | 'drink' | 'dessert' | 'side'
   priceKes: number
+  preparationMinutes?: number
+  offer?: { label: string; originalPriceKes: number; offerPriceKes: number; active: boolean; schedule?: 'daily' | 'weekly' | 'black_friday' | 'date_range'; startsAt?: number; endsAt?: number }
   available: boolean
   quantityOnHand?: number
   unit?: string
@@ -71,6 +120,14 @@ function optionalHttpsUrl(value: string | undefined, field: string): string | un
 
 function normalized(input: ItemInput) {
   assertPositiveInteger(input.priceKes, 'priceKes')
+  const preparationMinutes = input.preparationMinutes ?? 20
+  assertPositiveInteger(preparationMinutes, 'preparationMinutes')
+  if (preparationMinutes > 240) throw new Error('preparationMinutes must be 240 or less')
+  if (input.offer) {
+    assertPositiveInteger(input.offer.originalPriceKes, 'offer.originalPriceKes')
+    assertPositiveInteger(input.offer.offerPriceKes, 'offer.offerPriceKes')
+    if (input.offer.offerPriceKes >= input.offer.originalPriceKes) throw new Error('Offer price must be lower than the original price')
+  }
   assertOptionalNonNegativeInteger(input.quantityOnHand, 'quantityOnHand')
   const item: Record<string, unknown> = {
     name: cleanRequired(input.name, 'name', 120),
@@ -78,6 +135,8 @@ function normalized(input: ItemInput) {
     description: optionalText(input.description, 1000),
     category: input.category,
     priceKes: input.priceKes,
+    preparationMinutes,
+    offer: input.offer,
     available: input.quantityOnHand === 0 ? false : input.available,
     quantityOnHand: input.quantityOnHand,
     unit: optionalText(input.unit, 30),
@@ -108,6 +167,22 @@ async function withImageUrl(ctx: any, item: any) {
   return { ...item, imageUrl: storedUrl ?? item.externalImageUrl }
 }
 
+// Offers remain configured in the database, but scheduled offers are only priced as live
+// during their configured window. Nairobi local time is used for Friday-only offers.
+export function isOfferLive(offer: any, now = Date.now()): boolean {
+  if (!offer?.active) return false
+  if (offer.schedule === 'date_range') return (offer.startsAt === undefined || now >= offer.startsAt) && (offer.endsAt === undefined || now <= offer.endsAt)
+  if (offer.schedule === 'black_friday') {
+    const nairobiDay = new Date(now + 3 * 60 * 60 * 1000).getUTCDay()
+    return nairobiDay === 5 && (offer.startsAt === undefined || now >= offer.startsAt) && (offer.endsAt === undefined || now <= offer.endsAt)
+  }
+  return (offer.startsAt === undefined || now >= offer.startsAt) && (offer.endsAt === undefined || now <= offer.endsAt)
+}
+
+function forCustomer(item: any) {
+  return item.offer ? { ...item, offer: { ...item.offer, active: isOfferLive(item.offer) } } : item
+}
+
 export const available = queryGeneric({
   args: { restaurantId: v.id('restaurants'), category: v.optional(category) },
   handler: async (ctx, args) => {
@@ -118,7 +193,21 @@ export const available = queryGeneric({
       : await ctx.db.query('items').withIndex('by_restaurant_available', (query: any) =>
           query.eq('restaurantId', args.restaurantId).eq('available', true).eq('archived', false),
         ).collect()
-    return Promise.all(items.filter((item) => item.available && !item.archived).map((item) => withImageUrl(ctx, item)))
+    return Promise.all(items.filter((item) => item.available && !item.archived).map(async (item) => forCustomer(await withImageUrl(ctx, item))))
+  },
+})
+
+// Public QR-menu lookup: the scanned table number identifies the active restaurant for the diner.
+export const availableForTable = queryGeneric({
+  args: { tableNumber: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    if (args.tableNumber !== undefined && (!Number.isInteger(args.tableNumber) || args.tableNumber < 1)) throw new Error('Invalid table number')
+    const table = (await ctx.db.query('tables').collect()).find((entry) => (args.tableNumber === undefined || entry.number === args.tableNumber) && entry.active)
+    if (!table) return { restaurantId: undefined, activeTables: [], items: [] }
+    const items = await ctx.db.query('items').withIndex('by_restaurant_available', (query: any) => query.eq('restaurantId', table.restaurantId).eq('available', true).eq('archived', false)).collect()
+    const activeTables = (await ctx.db.query('tables').withIndex('by_restaurant_number', (query: any) => query.eq('restaurantId', table.restaurantId)).collect())
+      .filter((entry: any) => entry.active).map((entry: any) => entry.number).sort((a: number, b: number) => a - b)
+    return { restaurantId: table.restaurantId, activeTables, items: await Promise.all(items.filter((item) => item.available && !item.archived).map(async (item) => forCustomer(await withImageUrl(ctx, item)))) }
   },
 })
 
@@ -204,8 +293,54 @@ export const update = mutationGeneric({
     }
     await ctx.db.patch(args.itemId, { ...item, updatedAt: Date.now() })
     if (replacingStoredImage && existing.imageStorageId) await ctx.storage.delete(existing.imageStorageId)
-    await logActivity(ctx.db, staff, 'item_update', `Updated menu item “${item.name}”`)
+    const offerDetail = args.offer
+      ? `${args.offer.active ? 'activated' : 'saved'} offer “${args.offer.label}” at KES ${args.offer.offerPriceKes} (was KES ${args.offer.originalPriceKes})`
+      : existing.offer ? 'removed its offer' : undefined
+    await logActivity(ctx.db, staff, 'item_update', `Updated menu item “${item.name}”${offerDetail ? ` · ${offerDetail}` : ''}`)
     return args.itemId
+  },
+})
+
+// Offer management has its own mutations so the counter can control whether an existing offer
+// is currently shown to diners without being allowed to change the commercial price.
+export const updateOffer = mutationGeneric({
+  args: {
+    token: v.string(), itemId: v.id('items'), clear: v.optional(v.boolean()),
+    label: v.optional(v.string()), originalPriceKes: v.optional(v.number()), offerPriceKes: v.optional(v.number()), active: v.optional(v.boolean()),
+    schedule: v.optional(v.union(v.literal('daily'), v.literal('weekly'), v.literal('black_friday'), v.literal('date_range'))),
+    startsAt: v.optional(v.number()), endsAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.itemId)
+    if (!item || item.archived) throw new Error('Menu item not found')
+    const staff = await requireStaff(ctx.db, args.token, ['manager'], String(item.restaurantId))
+    if (args.clear) {
+      await ctx.db.patch(item._id, { offer: undefined, updatedAt: Date.now() })
+      await logActivity(ctx.db, staff, 'offer_remove', `Removed offer from “${item.name}”`)
+      return item._id
+    }
+    const label = args.label?.trim()
+    if (!label || label.length > 120) throw new Error('Offer label is required')
+    const originalPriceKes = args.originalPriceKes ?? item.priceKes
+    if (!Number.isSafeInteger(originalPriceKes) || originalPriceKes <= 0) throw new Error('Original offer price must be a positive whole number')
+    if (!Number.isSafeInteger(args.offerPriceKes) || args.offerPriceKes! <= 0 || args.offerPriceKes! >= originalPriceKes) throw new Error('Offer price must be lower than the original price')
+    if (args.schedule === 'date_range' && args.startsAt !== undefined && args.endsAt !== undefined && args.endsAt < args.startsAt) throw new Error('Offer end must be after its start')
+    const offer = { label, originalPriceKes, offerPriceKes: args.offerPriceKes!, active: args.active ?? false, schedule: args.schedule, startsAt: args.startsAt, endsAt: args.endsAt }
+    await ctx.db.patch(item._id, { offer, updatedAt: Date.now() })
+    await logActivity(ctx.db, staff, 'offer_update', `Updated offer for “${item.name}” · ${label} · KES ${offer.offerPriceKes} vs KES ${offer.originalPriceKes} · ${offer.active ? 'active' : 'inactive'}`)
+    return item._id
+  },
+})
+
+export const setOfferActive = mutationGeneric({
+  args: { token: v.string(), itemId: v.id('items'), active: v.boolean() },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.itemId)
+    if (!item || item.archived || !item.offer) throw new Error('An offer must be configured before it can be activated')
+    const staff = await requireStaff(ctx.db, args.token, ['counter', 'manager'], String(item.restaurantId))
+    await ctx.db.patch(item._id, { offer: { ...item.offer, active: args.active }, updatedAt: Date.now() })
+    await logActivity(ctx.db, staff, 'offer_status', `${args.active ? 'Activated' : 'Paused'} offer “${item.offer.label}” for “${item.name}” · KES ${item.offer.offerPriceKes} vs KES ${item.offer.originalPriceKes}`)
+    return item._id
   },
 })
 

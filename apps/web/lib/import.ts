@@ -1,7 +1,7 @@
 import Papa from 'papaparse'
 import type { ItemCategory, ParsedInventoryBatch, ParsedInventoryRow } from '@heavenly/types'
 
-export type InventoryField = 'name' | 'nameSwahili' | 'description' | 'category' | 'priceKes' | 'available' | 'quantityOnHand' | 'unit'
+export type InventoryField = 'name' | 'nameSwahili' | 'description' | 'category' | 'priceKes' | 'preparationMinutes' | 'available' | 'quantityOnHand' | 'unit'
 export type ColumnMapping = Record<string, InventoryField | ''>
 
 const synonyms: Record<InventoryField, string[]> = {
@@ -10,6 +10,7 @@ const synonyms: Record<InventoryField, string[]> = {
   description: ['description', 'details', 'maelezo'],
   category: ['category', 'type', 'aina'],
   priceKes: ['price', 'bei', 'cost', 'pricekes'],
+  preparationMinutes: ['preparationminutes', 'preptime', 'prepminutes', 'cookingtime'],
   available: ['available', 'availability', 'in stock', 'instock'],
   quantityOnHand: ['qty', 'quantity', 'idadi', 'quantityonhand'],
   unit: ['unit', 'kipimo'],
@@ -48,16 +49,19 @@ export function mapInventoryRows(records: Array<Record<string, unknown>>, mappin
     const category = values.category?.trim().toLowerCase() as ItemCategory | undefined
     const priceKes = Number(values.priceKes)
     const quantity = values.quantityOnHand === undefined || values.quantityOnHand === '' ? undefined : Number(values.quantityOnHand)
+    const preparationMinutes = values.preparationMinutes === undefined || values.preparationMinutes === '' ? 20 : Number(values.preparationMinutes)
     if (!name) errors.push('Name is required')
     if (!category || !validCategories.includes(category)) errors.push('Choose a valid category')
     if (!Number.isInteger(priceKes) || priceKes <= 0) errors.push('Price must be a positive whole number')
     if (quantity !== undefined && (!Number.isInteger(quantity) || quantity < 0)) errors.push('Quantity must be zero or a positive whole number')
+    if (!Number.isInteger(preparationMinutes) || preparationMinutes < 1 || preparationMinutes > 240) errors.push('Preparation time must be 1 to 240 minutes')
     const row: ParsedInventoryRow = { sourceRow: index + 2, sourceColumns, errors }
     if (name) row.name = name
     if (values.nameSwahili) row.nameSwahili = values.nameSwahili
     if (values.description) row.description = values.description
     if (category) row.category = category
     if (Number.isFinite(priceKes)) row.priceKes = priceKes
+    if (Number.isFinite(preparationMinutes)) row.preparationMinutes = preparationMinutes
     if (values.available !== undefined) row.available = booleanValue(values.available)
     if (quantity !== undefined && Number.isFinite(quantity)) row.quantityOnHand = quantity
     if (values.unit) row.unit = values.unit

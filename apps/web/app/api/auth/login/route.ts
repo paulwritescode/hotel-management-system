@@ -23,12 +23,15 @@ export async function POST(request: Request) {
       convexToken: result.token,
       name: result.staff.name,
       role: result.staff.role,
+      ...(result.staff.counterLabel ? { counterLabel: result.staff.counterLabel } : {}),
       exp: expiresAtSeconds,
     }, secret)
     const response = NextResponse.json({ ok: true, role: result.staff.role })
     response.cookies.set(SESSION_COOKIE, token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge })
     return response
-  } catch {
+  } catch (reason) {
+    const detail = reason instanceof Error ? reason.message : ''
+    if (detail.includes('SESSION_SECRET')) return NextResponse.json({ error: 'Convex sign-in is not configured. Set SESSION_SECRET in the Heavenly Foods Convex deployment.' }, { status: 503 })
     return NextResponse.json({ error: 'PIN not recognised or account temporarily locked' }, { status: 401 })
   }
 }

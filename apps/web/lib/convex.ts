@@ -89,7 +89,7 @@ export type AuditEntry = {
 export type ActivityEntry = {
   _id: Id
   actorName: string
-  actorRole: StaffRole
+  actorRole: StaffRole | 'system'
   action: string
   detail?: string
   at: number
@@ -104,7 +104,17 @@ export type AnalyticsDashboard = {
   lowestRatedItems: Array<{ itemId: string; name: string; ratingCount: number; meanRating: number | null; ratings?: number[]; comments: string[] }>
   ordersByHour: Array<{ hour: number; orders: number; revenueKes: number }>
   tables: Array<{ tableNumber: number; orders: number; revenueKes: number; medianTurnaroundMs: number | null }>
-  waiters: Array<{ waiterId: string; name: string; ordersServed: number; medianServeTimeMs: number | null; ratingCount: number; meanRating: number | null; ratings?: number[] }>
+  waiters: Array<{ waiterId: string; name: string; ordersServed: number; medianServeTimeMs: number | null; ratingCount: number; meanRating: number | null; ratings?: number[]; tableNumbers: number[] }>
+  offers: {
+    activeItems: number
+    offerOrders: number
+    offerUnits: number
+    discountKes: number
+    revenueKes: number
+    normalOrders: number
+    normalRevenueKes: number
+    items: Array<{ itemId: string; name: string; offerLabel: string; offerPriceKes: number; originalPriceKes: number; units: number; discountKes: number; revenueKes: number }>
+  }
 }
 
 export const api = {
@@ -113,23 +123,28 @@ export const api = {
       token: string
       expiresAt: number
       restaurantId: Id
-      staff: { id: Id; name: string; role: StaffRole }
+      staff: { id: Id; name: string; role: StaffRole; counterLabel?: string }
     }>('auth:signIn'),
   },
   staff: {
     list: makeFunctionReference<'query', AuthArgs, Staff[]>('staff:list'),
     listVisible: makeFunctionReference<'query', AuthArgs, Staff[]>('staff:listVisible'),
-    create: makeFunctionReference<'action', AuthArgs & { name: string; role: StaffRole; pin: string }, Id>('staff:create'),
-    update: makeFunctionReference<'mutation', { token: string; staffId: Id; name: string; role: StaffRole; enabled: boolean }, null>('staff:update'),
+    create: makeFunctionReference<'action', AuthArgs & { name: string; role: StaffRole; counterLabel?: string; pin: string }, Id>('staff:create'),
+    update: makeFunctionReference<'mutation', { token: string; staffId: Id; name: string; role: StaffRole; counterLabel?: string; enabled: boolean }, null>('staff:update'),
     setPin: makeFunctionReference<'action', { token: string; staffId: Id; pin: string }, null>('staff:setPin'),
     remove: makeFunctionReference<'mutation', { token: string; staffId: Id }, Id>('staff:remove'),
     auditTrail: makeFunctionReference<'query', AuthArgs, AuditEntry[]>('staff:auditTrail'),
   },
   items: {
+    available: makeFunctionReference<'query', { restaurantId: Id; category?: Item['category'] }, Item[]>('items:available'),
+    availableForTable: makeFunctionReference<'query', { tableNumber?: number }, { restaurantId?: Id; activeTables: number[]; items: Item[] }>('items:availableForTable'),
     inventory: makeFunctionReference<'query', AuthArgs & { includeArchived?: boolean }, Item[]>('items:inventory'),
     generateUploadUrl: makeFunctionReference<'mutation', AuthArgs, string>('items:generateUploadUrl'),
     create: makeFunctionReference<'mutation', AuthArgs & ItemInput, Id>('items:create'),
     update: makeFunctionReference<'mutation', { token: string; itemId: Id } & ItemInput, Id>('items:update'),
+    updateOffer: makeFunctionReference<'mutation', { token: string; itemId: Id; clear?: boolean; label?: string; originalPriceKes?: number; offerPriceKes?: number; active?: boolean; schedule?: 'daily' | 'weekly' | 'black_friday' | 'date_range'; startsAt?: number; endsAt?: number }, Id>('items:updateOffer'),
+    syncFixedOffers: makeFunctionReference<'mutation', AuthArgs, { updated: number; added: number; archived: number; total: number }>('items:syncFixedOffers'),
+    setOfferActive: makeFunctionReference<'mutation', { token: string; itemId: Id; active: boolean }, Id>('items:setOfferActive'),
     archive: makeFunctionReference<'mutation', { token: string; itemId: Id }, Id>('items:archive'),
     setAvailability: makeFunctionReference<'mutation', { token: string; itemId: Id; available: boolean }, Id>('items:setAvailability'),
     restock: makeFunctionReference<'mutation', { token: string; itemId: Id; addQuantity: number }, { quantityOnHand: number; available: boolean; reenabled: boolean }>('items:restock'),
@@ -139,10 +154,18 @@ export const api = {
   orders: {
     live: makeFunctionReference<'query', AuthArgs, Order[]>('orders:live'),
     transition: makeFunctionReference<'mutation', { token: string; orderId: Id; status: Order['status'] }, Id>('orders:transition'),
+    setPreparationMinutes: makeFunctionReference<'mutation', { token: string; orderId: Id; preparationMinutes: number }, Id>('orders:setPreparationMinutes'),
+    pingWaiter: makeFunctionReference<'mutation', { token: string; orderId: Id }, Id>('orders:pingWaiter'),
     cancel: makeFunctionReference<'mutation', { token: string; orderId: Id; reason: string }, Id>('orders:cancel'),
     placeManual: makeFunctionReference<'mutation', AuthArgs & { tableNumber: number; customerName: string; customerPhone?: string; lines: Array<{ itemId: Id; quantity: number }> }, { orderId: Id; totalKes: number; lines: Order['lines'] }>('orders:placeManual'),
+    placeCustomer: makeFunctionReference<'mutation', { restaurantId: Id; tableNumber: number; customerName: string; customerPhone?: string; receiptPreference?: 'whatsapp' | 'email'; receiptDestination?: string; lines: Array<{ itemId: Id; quantity: number }> }, { orderId: Id; totalKes: number; reference: string; lines: Order['lines'] }>('orders:placeCustomer'),
+    paymentDetails: makeFunctionReference<'query', { orderId: Id }, { orderId: Id; restaurantId: Id; reference?: string; totalKes: number; tableNumber: number; customerName: string; lines: Order['lines']; preparationMinutes?: number; placedAt: number; paymentStatus: Order['paymentStatus']; paidAt?: number; paystackReference?: string; receiptPreference?: 'whatsapp' | 'email'; receiptDestination?: string }>('orders:paymentDetails'),
+    recordPaystackPayment: makeFunctionReference<'mutation', { orderId: Id; reference: string; amountKes: number }, Id>('orders:recordPaystackPayment'),
     waiterOrders: makeFunctionReference<'query', AuthArgs, Order[]>('orders:waiterOrders'),
     waiterStats: makeFunctionReference<'query', AuthArgs, { ordersServedToday: number; medianAcknowledgedToServedMs: number | null }>('orders:waiterStats'),
+  },
+  feedback: {
+    submitWeb: makeFunctionReference<'mutation', { restaurantId: Id; orderId: Id; rating: number; comment?: string }, Id>('feedback:submitWeb'),
   },
   settlement: {
     markPaid: makeFunctionReference<'mutation', { token: string; orderId: Id; method: PaymentMethod }, Id>('settlement:markPaid'),
@@ -167,6 +190,11 @@ export const api = {
     feed: makeFunctionReference<'query', AuthArgs & { limit?: number }, ActivityEntry[]>('activity:feed'),
     metrics: makeFunctionReference<'query', AuthArgs, ActivityMetrics>('activity:metrics'),
     lastActive: makeFunctionReference<'query', AuthArgs, Record<string, number>>('activity:lastActiveByStaff'),
+    clockInTimes: makeFunctionReference<'query', AuthArgs, Record<string, number>>('activity:clockInTimes'),
+    roster: makeFunctionReference<'query', AuthArgs, Record<string, { status: 'clocked_in' | 'clocked_out'; at: number }>>('activity:roster'),
+    rosterHistory: makeFunctionReference<'query', AuthArgs, Array<{ _id: Id; staffId: Id; staffName: string; staffRole: Staff['role']; clockInAt: number; clockOutAt?: number }>>('activity:rosterHistory'),
+    clockIn: makeFunctionReference<'mutation', AuthArgs & { staffId: Id }, Id>('activity:clockIn'),
+    clockOut: makeFunctionReference<'mutation', AuthArgs & { staffId: Id }, Id>('activity:clockOut'),
   },
   tables: {
     list: makeFunctionReference<'query', AuthArgs, DiningTable[]>('tables:list'),

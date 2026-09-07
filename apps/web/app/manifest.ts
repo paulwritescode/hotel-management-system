@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'Heavenly Foods',
     short_name: 'Heavenly',
-    description: 'Live restaurant operations for staff — orders, inventory, tables and analytics.',
+    description: 'Live restaurant operations for staff — orders, menu items, tables and analytics.',
     start_url: '/login',
     scope: '/',
     display: 'standalone',

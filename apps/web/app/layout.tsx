@@ -38,6 +38,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     staffId: session.staffId,
     name: session.name,
     role: session.role,
+    ...(session.counterLabel ? { counterLabel: session.counterLabel } : {}),
   } : null
   return <html lang="en"><body><Providers initialAuth={initialAuth}><ToastProvider>{children}</ToastProvider><InstallPrompt /><PwaRegister /></Providers></body></html>
 }

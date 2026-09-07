@@ -5,6 +5,7 @@ import { BellRing, Check } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DashboardShell } from '@/components/shell'
 import { Button } from '@/components/ui/button'
+import { Dialog } from '@/components/ui/dialog'
 import { useToast } from '@/components/ui/toast'
 import { useAuthArgs, useBackendAvailable, useStaffIdentity } from '@/components/providers'
 import { api } from '@/lib/convex'
@@ -42,7 +43,10 @@ export function WaiterDashboard() {
   const [orders, setOrders] = useState<Order[]>(backend ? [] : demoOrders.filter((order) => [3, 12].includes(order.tableNumber)))
   const [alertsOn, setAlertsOn] = useState(false)
   const [alarmQueue, setAlarmQueue] = useState<Order[]>([])
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const seenReady = useRef<Set<string> | null>(null)
+  const seenPreparationUpdates = useRef<Map<string, number> | null>(null)
+  const seenWaiterPings = useRef<Map<string, number> | null>(null)
 
   useEffect(() => { if (liveOrders) setOrders(liveOrders) }, [liveOrders])
   useEffect(() => { setAlertsOn(typeof localStorage !== 'undefined' && localStorage.getItem(ALERTS_KEY) === 'on') }, [])
@@ -69,6 +73,46 @@ export function WaiterDashboard() {
     seenReady.current = new Set(readyIds)
     if (alertsOn && fresh.length > 0) raiseAlarm(fresh)
   }, [readyOrders, alertsOn, raiseAlarm])
+
+  // Kitchen estimate changes arrive through the same live order subscription. Seed the first
+  // snapshot, then announce only new updates so a refresh does not repeat old warnings.
+  useEffect(() => {
+    const current = new Map(orders.map((order) => [order._id, order.preparationMinutesUpdatedAt ?? 0]))
+    if (seenPreparationUpdates.current === null) { seenPreparationUpdates.current = current; return }
+    const changed = orders.filter((order) => {
+      const updatedAt = order.preparationMinutesUpdatedAt ?? 0
+      return updatedAt > 0 && updatedAt > (seenPreparationUpdates.current?.get(order._id) ?? 0)
+    })
+    seenPreparationUpdates.current = current
+    for (const order of changed) {
+      const previous = order.preparationMinutesPrevious ?? order.preparationMinutes ?? 20
+      const currentMinutes = order.preparationMinutes ?? previous
+      const extra = currentMinutes - previous
+      if (extra <= 0) continue
+      const message = `${mealSummary(order)} will take ${extra} more minute${extra === 1 ? '' : 's'} (now ${currentMinutes} minutes). You will be notified once it is ready.`
+      notify(`Table ${order.tableNumber}: ${extra} extra minute${extra === 1 ? '' : 's'}`)
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try { new Notification(`Kitchen update — Table ${order.tableNumber}`, { body: message, tag: `prep-${order._id}-${order.preparationMinutesUpdatedAt}` }) } catch { /* ignore */ }
+      }
+    }
+  }, [orders, notify])
+
+  useEffect(() => {
+    const current = new Map(orders.map((order) => [order._id, order.waiterPingAt ?? 0]))
+    if (seenWaiterPings.current === null) { seenWaiterPings.current = current; return }
+    const pings = orders.filter((order) => {
+      const pingAt = order.waiterPingAt ?? 0
+      return pingAt > 0 && pingAt > (seenWaiterPings.current?.get(order._id) ?? 0)
+    })
+    seenWaiterPings.current = current
+    for (const order of pings) {
+      const message = `Table ${order.tableNumber} is ready to serve: ${mealSummary(order)}`
+      notify(`Table ${order.tableNumber} is ready to serve`)
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try { new Notification('Waiter requested — order ready', { body: message, tag: `ping-${order._id}-${order.waiterPingAt}` }) } catch { /* ignore */ }
+      }
+    }
+  }, [orders, notify])
 
   const tableNumbers = useMemo(() => {
     const tables = backend ? (liveTables ?? []) : demoTables
@@ -140,7 +184,7 @@ export function WaiterDashboard() {
       <div className="section-heading"><div><p className="caption">Live service</p><h2>Orders for your tables</h2><p className="muted">Green cards are ready to run</p></div></div>
       {active.length === 0
         ? <div className="empty-state"><h2>All assigned tables are clear</h2><p className="muted">Ready orders appear here instantly</p></div>
-        : <div className="queue-grid">{active.map((order) => <article key={order._id} className={`order-card order-card-${order.status}`}>
+        : <div className="queue-grid">{active.map((order) => <article key={order._id} className={`order-card order-card-${order.status}`} role="button" tabIndex={0} onClick={() => setSelectedOrder(order)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedOrder(order) } }}>
             <header className="order-card-head">
               <div><p className="order-table-number">Table {order.tableNumber}</p><p className="order-customer">{order.customerName}</p></div>
               <span className={`status-pill status-${order.status}`}>{statusLabels[order.status]}</span>
@@ -148,10 +192,14 @@ export function WaiterDashboard() {
             <ul className="order-lines">{order.lines.map((line) => <li key={line.itemId}><strong>{line.quantity}×</strong> {line.nameSnapshot}</li>)}</ul>
             <footer className="order-card-foot">
               <div><p className="order-total">KES {order.totalKes.toLocaleString()}</p></div>
-              <div className="order-actions">{order.status === 'ready' ? <Button size="small" onClick={() => serve(order)}>Mark served</Button> : <span className="fine-print muted">Waiting for counter</span>}</div>
+              <div className="order-actions" onClick={(event) => event.stopPropagation()}>{order.status === 'ready' ? <Button size="small" onClick={() => serve(order)}>Mark served</Button> : <span className="fine-print muted">Tap for details</span>}</div>
             </footer>
           </article>)}</div>}
     </section>
+
+    <Dialog open={Boolean(selectedOrder)} onClose={() => setSelectedOrder(null)} title={selectedOrder?.reference ?? 'Order details'} description={selectedOrder ? `Table ${selectedOrder.tableNumber} · ${selectedOrder.customerName}` : undefined}>
+      {selectedOrder && <div className="waiter-order-details"><div className="waiter-order-detail-grid"><div><span className="caption">Table</span><strong>{selectedOrder.tableNumber}</strong></div><div><span className="caption">Status</span><strong>{statusLabels[selectedOrder.status]}</strong></div><div><span className="caption">Total</span><strong>KES {selectedOrder.totalKes.toLocaleString()}</strong></div><div><span className="caption">Payment</span><strong>{selectedOrder.paymentStatus}</strong></div></div><div><p className="caption">Order</p><ul className="order-lines">{selectedOrder.lines.map((line) => <li key={line.itemId}><strong>{line.quantity}×</strong> {line.nameSnapshot}<span className="waiter-order-line-total">KES {(line.quantity * line.priceKesSnapshot).toLocaleString()}</span></li>)}</ul></div>{selectedOrder.preparationMinutes && <p className="fine-print muted">Estimated preparation: {selectedOrder.preparationMinutes} minutes</p>}{selectedOrder.status === 'ready' && <Button onClick={() => { void serve(selectedOrder); setSelectedOrder(null) }}>Mark served</Button>}</div>}
+    </Dialog>
 
     {alarm && <div className="alarm-screen" role="alertdialog" aria-label="Order ready alarm">
       <div className="alarm-card">
